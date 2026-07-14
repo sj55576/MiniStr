@@ -102,6 +102,13 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
 
 export function endTurn(state: GameState): GameState {
   const activePlayer = otherPlayer(state.activePlayer);
-  const refreshed = state.units.map(unit => unit.owner === activePlayer ? { ...unit, hasMoved: false, hasActed: false } : unit);
+  const refreshed = state.units.map(unit => {
+    if (unit.owner !== activePlayer) return unit;
+    const terrain = terrainAt(state.board, unit.position);
+    const onOwnedProperty = !!terrain && ['city', 'factory', 'capital'].includes(terrain.kind) && terrain.owner === activePlayer;
+    if (!onOwnedProperty) return { ...unit, hasMoved: false, hasActed: false };
+    const stats = unitStats[unit.kind];
+    return { ...unit, hasMoved: false, hasActed: false, fuel: stats.fuel, ammo: stats.ammo, hp: Math.min(100, unit.hp + 20) };
+  });
   return collectIncome({ ...state, activePlayer, turn: state.turn + 1, units: refreshed });
 }

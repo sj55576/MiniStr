@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { captureProperty, collectIncome, createBoard, createGameState, forecastCombat, moveUnit, nextRandom, produceUnit, terrainRules, type GameState } from './index';
+import { captureProperty, collectIncome, createBoard, createGameState, endTurn, forecastCombat, moveUnit, nextRandom, produceUnit, terrainRules, unitStats, type GameState } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -56,5 +56,64 @@ describe('Phase 2 game rules', () => {
 
   it('uses deterministic random state', () => {
     expect(nextRandom(42)).toEqual(nextRandom(42));
+  });
+});
+
+describe('Resupply on end turn', () => {
+  it('heals and resupplies a damaged unit on its own capital when it becomes active again', () => {
+    const board = createBoard(1, 1, { kind: 'capital', owner: 'red' });
+    const state = createGameState(board);
+    state.units = [{ id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 60, fuel: 10, ammo: 2, hasMoved: true, hasActed: true }];
+    const afterBlueTurn = endTurn(state);
+    const afterRedTurn = endTurn(afterBlueTurn);
+    const unit = afterRedTurn.units[0]!;
+    expect(unit.hp).toBe(80);
+    expect(unit.fuel).toBe(unitStats.infantry.fuel);
+    expect(unit.ammo).toBe(unitStats.infantry.ammo);
+  });
+
+  it('does not resupply or heal a unit on an enemy-owned property', () => {
+    const board = createBoard(1, 1, { kind: 'city', owner: 'blue' });
+    const state = createGameState(board);
+    state.units = [{ id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 60, fuel: 10, ammo: 2, hasMoved: true, hasActed: true }];
+    const afterBlueTurn = endTurn(state);
+    const afterRedTurn = endTurn(afterBlueTurn);
+    const unit = afterRedTurn.units[0]!;
+    expect(unit.hp).toBe(60);
+    expect(unit.fuel).toBe(10);
+    expect(unit.ammo).toBe(2);
+  });
+
+  it('does not resupply or heal a unit on a neutral property', () => {
+    const board = createBoard(1, 1, { kind: 'city' });
+    const state = createGameState(board);
+    state.units = [{ id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 60, fuel: 10, ammo: 2, hasMoved: true, hasActed: true }];
+    const afterBlueTurn = endTurn(state);
+    const afterRedTurn = endTurn(afterBlueTurn);
+    const unit = afterRedTurn.units[0]!;
+    expect(unit.hp).toBe(60);
+    expect(unit.fuel).toBe(10);
+    expect(unit.ammo).toBe(2);
+  });
+
+  it('caps healing at 100 hp rather than overshooting', () => {
+    const board = createBoard(1, 1, { kind: 'factory', owner: 'red' });
+    const state = createGameState(board);
+    state.units = [{ id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 90, hasMoved: true, hasActed: true }];
+    const afterBlueTurn = endTurn(state);
+    const afterRedTurn = endTurn(afterBlueTurn);
+    expect(afterRedTurn.units[0]?.hp).toBe(100);
+  });
+
+  it('does not heal a unit that is not standing on any property', () => {
+    const board = createBoard(1, 1, { kind: 'plain' });
+    const state = createGameState(board);
+    state.units = [{ id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 60, fuel: 10, ammo: 2, hasMoved: true, hasActed: true }];
+    const afterBlueTurn = endTurn(state);
+    const afterRedTurn = endTurn(afterBlueTurn);
+    const unit = afterRedTurn.units[0]!;
+    expect(unit.hp).toBe(60);
+    expect(unit.fuel).toBe(10);
+    expect(unit.ammo).toBe(2);
   });
 });
