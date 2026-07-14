@@ -1,128 +1,50 @@
-import "./style.css";
-import { CanvasBoard, type BoardAction } from "./ui/canvas-board";
-import { type Coordinate, type GameView, type UnitView } from "./ui/types";
+import './style.css';
+import { attackUnit, captureProperty, createGameState, endTurn, maps, moveUnit, produceUnit, reachablePositions, type GameState, type Position, type UnitKind, unitStats, visibleEnemies, visiblePositions } from './game';
+import { chooseCpuAction } from './ai';
 
-/*
- * The core module is deliberately kept behind this small adapter.  Its public
- * API is pure: every command receives the current state and returns the next.
- * If the domain model changes, only this file needs to be updated.
- */
-import { attackUnit, createGameState, endTurn, getReachablePositions, moveUnit, type GameState } from "./core/game";
+let selectedMap = maps[0]!;
+let game = start(selectedMap.id);
+let selected: string | undefined;
+let message = 'ユニットを選択して行動してください。';
+const app = document.querySelector<HTMLDivElement>('#app')!;
 
-let game: GameState = createGameState();
-let selectedUnitId: string | undefined;
-let reachable: Coordinate[] = [];
-let notice = "自軍ユニットを選んでください。";
-
-const app = document.querySelector<HTMLDivElement>("#app");
-if (!app) throw new Error("The app root could not be found.");
-
-app.innerHTML = `
-  <main class="game-shell" aria-label="MiniStr tactical game">
-    <section class="board-card" aria-label="戦場">
-      <canvas id="board" role="application" aria-label="マップ。ユニットをクリックして行動します"></canvas>
-    </section>
-    <aside class="sidebar" aria-live="polite">
-      <header><p class="eyebrow">turn-based tactics</p><h1>MiniStr</h1></header>
-      <div id="turn" class="turn"></div>
-      <p id="guide" class="guide"></p>
-      <div class="legend"><div><span class="friendly"></span>味方ユニット</div><div><span class="hostile"></span>敵ユニット</div><div><span class="range"></span>移動可能なマス</div></div>
-      <p id="winner" class="winner" hidden></p>
-      <button id="end-turn" class="end-turn" type="button">ターン終了</button>
-    </aside>
-  </main>`;
-
-const canvas = document.querySelector<HTMLCanvasElement>("#board");
-const turn = document.querySelector<HTMLDivElement>("#turn");
-const guide = document.querySelector<HTMLParagraphElement>("#guide");
-const winner = document.querySelector<HTMLParagraphElement>("#winner");
-const endTurnButton = document.querySelector<HTMLButtonElement>("#end-turn");
-if (!canvas || !turn || !guide || !winner || !endTurnButton) throw new Error("The game UI could not be initialized.");
-
-const view = (): GameView => ({
-  width: game.boardSize,
-  height: game.boardSize,
-  currentPlayer: game.activePlayer,
-  winner: game.winner,
-  units: game.units.map((unit) => ({
-    id: unit.id,
-    owner: unit.player,
-    type: unit.type,
-    position: unit.position,
-    hp: unit.hp,
-    maxHp: 10,
-    moved: unit.hasMoved,
-    attacked: unit.hasAttacked,
-  })),
-});
-const selectedUnit = (): UnitView | undefined => view().units.find((unit) => unit.id === selectedUnitId);
-const playerName = (player: GameView["currentPlayer"]): string => player === "blue" ? "プレイヤー" : "敵";
-
-const board = new CanvasBoard(canvas, (action) => handleAction(action));
-
-function refresh(): void {
-  const state = view();
-  const selected = selectedUnit();
-  const isOver = Boolean(state.winner);
-  turn!.textContent = isOver ? "ゲーム終了" : `${playerName(state.currentPlayer)}の手番`;
-  turn!.classList.toggle("enemy", state.currentPlayer === "red");
-  guide!.textContent = notice;
-  winner!.hidden = !isOver;
-  winner!.textContent = isOver ? `${playerName(state.winner!)}の勝利！` : "";
-  endTurnButton!.disabled = isOver;
-  board.render({ game: state, selectedUnitId: selected?.id, reachable, message: notice });
+function start(id: string): GameState {
+  selectedMap = maps.find(map => map.id === id) ?? maps[0]!;
+  const state = createGameState(selectedMap.board);
+  return { ...state, players: { red: { gold: selectedMap.startingGold, income: 0 }, blue: { gold: selectedMap.startingGold, income: 0 } }, units: [
+    { id: 'r1', kind: 'infantry', owner: 'red', position: { x: 0, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
+    { id: 'r2', kind: 'tank', owner: 'red', position: { x: 1, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
+    { id: 'b1', kind: 'infantry', owner: 'blue', position: { x: state.board.width - 1, y: state.board.height - 2 }, hp: 100, hasMoved: false, hasActed: false },
+    { id: 'b2', kind: 'tank', owner: 'blue', position: { x: state.board.width - 2, y: state.board.height - 2 }, hp: 100, hasMoved: false, hasActed: false },
+  ] };
 }
-
-function select(unit: UnitView): void {
-  if (unit.owner !== view().currentPlayer) {
-    notice = "今はそのユニットを操作できません。";
-    return;
-  }
-  selectedUnitId = unit.id;
-  reachable = getReachablePositions(game, unit.id);
-  notice = "移動先を選ぶか、隣接する敵を選んで攻撃します。";
+const key = (p: Position) => `${p.x},${p.y}`;
+function render(): void {
+  const visible = new Set(visiblePositions(game, game.activePlayer).map(key));
+  const movable = selected ? new Set(reachablePositions(game, selected).map(key)) : new Set<string>();
+  const board = game.board.terrain.flatMap((row, y) => row.map((terrain, x) => {
+    const unit = game.units.find(item => item.position.x === x && item.position.y === y);
+    const hidden = game.activePlayer === 'red' && !visible.has(`${x},${y}`);
+    const label = unit && !hidden ? `<span class="unit ${unit.owner}">${unit.kind.slice(0, 1).toUpperCase()}<small>${unit.hp}</small></span>` : '';
+    return `<button class="tile ${terrain.kind} ${movable.has(`${x},${y}`) ? 'reachable' : ''} ${hidden ? 'fog' : ''}" data-x="${x}" data-y="${y}" title="${terrain.kind}">${label}</button>`;
+  })).join('');
+  const production = (['infantry', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer'] as UnitKind[]).map(kind => `<button class="produce" data-kind="${kind}" ${game.activePlayer !== 'red' ? 'disabled' : ''}>${kind} (${unitStats[kind].cost})</button>`).join('');
+  app.innerHTML = `<main><header><h1>MiniStr</h1><select id="map">${maps.map(map => `<option value="${map.id}" ${map.id === selectedMap.id ? 'selected' : ''}>${map.name}</option>`).join('')}</select><strong>${game.activePlayer === 'red' ? 'プレイヤー' : 'CPU'}の手番</strong><button id="end">ターン終了</button></header><p>${message}</p><section class="layout"><div class="board" style="grid-template-columns:repeat(${game.board.width},1fr)">${board}</div><aside><h2>資金</h2><p>赤 ${game.players.red.gold} / 青 ${game.players.blue.gold}</p><h2>生産</h2>${production}<h2>索敵</h2><p>${visibleEnemies(game, game.activePlayer).length} 敵部隊を確認</p><small>黄色: 移動可能　霧: 未索敵<br/>航空・艦艇は燃料/弾薬を消費します。</small></aside></section></main>`;
+  document.querySelector<HTMLSelectElement>('#map')!.onchange = event => { game = start((event.target as HTMLSelectElement).value); selected = undefined; render(); };
+  document.querySelector<HTMLButtonElement>('#end')!.onclick = () => { game = endTurn(game); selected = undefined; if (game.activePlayer === 'blue') runCpu(); message = 'CPU が行動しました。'; render(); };
+  app.querySelectorAll<HTMLButtonElement>('.tile').forEach(tile => tile.onclick = () => act({ x: Number(tile.dataset.x), y: Number(tile.dataset.y) }));
+  app.querySelectorAll<HTMLButtonElement>('.produce').forEach(button => button.onclick = () => { const factory = game.board.terrain.flatMap((row,y) => row.map((tile,x) => ({ tile,x,y }))).find(item => item.tile.kind === 'factory' && item.tile.owner === game.activePlayer); if (factory) { const result = produceUnit(game, { x: factory.x, y: factory.y }, button.dataset.kind as UnitKind); if (result.ok) game = result.value; else message = result.error; render(); } });
 }
-
-function handleAction(action: BoardAction): void {
-  if (view().winner) return;
-  try {
-    if (action.type === "select") select(action.unit);
-    if (action.type === "move") {
-      if (!selectedUnitId) return;
-      game = moveUnit(game, selectedUnitId, action.destination);
-      reachable = [];
-      notice = "移動しました。攻撃する敵を選ぶか、ターンを終了してください。";
-    }
-    if (action.type === "attack") {
-      if (!selectedUnitId) { notice = "先に自軍ユニットを選んでください。"; }
-      else {
-        game = attackUnit(game, selectedUnitId, action.target.id);
-        reachable = [];
-        notice = "攻撃しました。ターンを終了してください。";
-      }
-    }
-    if (action.type === "clear") {
-      selectedUnitId = undefined;
-      reachable = [];
-      notice = "自軍ユニットを選んでください。";
-    }
-  } catch (error) {
-    notice = error instanceof Error ? error.message : "その行動は実行できません。";
+function act(position: Position): void { const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${target.kind}を選択しました。`; } else if (target && selected) { const result = attackUnit(game, selected, target.id); if (result.ok) { game = result.value; message = '攻撃しました。'; } else message = result.error; selected = undefined; } else if (selected) { const result = moveUnit(game, selected, position); if (result.ok) { game = result.value; message = '移動しました。'; } else message = result.error; } render(); }
+function runCpu(): void {
+  for (let steps = 0; steps < 30 && game.activePlayer === 'blue' && !game.winner; steps += 1) {
+    const action = chooseCpuAction(game, 'normal');
+    if (action.type === 'endTurn') { game = endTurn(game); break; }
+    const result = action.type === 'attack' ? attackUnit(game, action.unitId, action.targetId)
+      : action.type === 'capture' ? captureProperty(game, action.unitId)
+      : action.type === 'move' ? moveUnit(game, action.unitId, action.destination)
+      : produceUnit(game, action.factory, action.kind);
+    if (result.ok) game = result.value; else { game = endTurn(game); break; }
   }
-  refresh();
 }
-
-endTurnButton.addEventListener("click", () => {
-  if (view().winner) return;
-  try {
-    game = endTurn(game);
-    selectedUnitId = undefined;
-    reachable = [];
-    notice = "自軍ユニットを選んでください。";
-  } catch (error) {
-    notice = error instanceof Error ? error.message : "ターンを終了できません。";
-  }
-  refresh();
-});
-
-refresh();
+render();
