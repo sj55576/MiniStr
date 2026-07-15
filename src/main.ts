@@ -1,12 +1,14 @@
 import './style.css';
-import { attackUnit, captureProperty, createGameState, endTurn, maps, moveUnit, produceUnit, reachablePositions, type GameState, type Position, type UnitKind, unitStats, visibleEnemies, visiblePositions } from './game';
-import { chooseCpuAction } from './ai';
+import { attackUnit, captureProperty, createGameState, endTurn, forecastCombat, maps, moveUnit, produceUnit, reachablePositions, type GameState, type Position, type UnitKind, unitStats, visibleEnemies, visiblePositions } from './game';
+import { chooseCpuAction, type CpuDifficulty } from './ai';
 
 let selectedMap = maps[0]!;
 let game = start(selectedMap.id);
 let selected: string | undefined;
 let message = 'ユニットを選択して行動してください。';
+let difficulty: CpuDifficulty = 'normal';
 const app = document.querySelector<HTMLDivElement>('#app')!;
+const difficultyNames: Record<CpuDifficulty, string> = { easy: '易しい', normal: '普通', hard: '難しい' };
 
 const terrainNames: Record<string, string> = {
   plain: '平原', forest: '森林', mountain: '山岳', road: '道路', sea: '海',
@@ -60,12 +62,18 @@ function render(): void {
   const selectedTerrain = selectedUnit ? game.board.terrain[selectedUnit.position.y]?.[selectedUnit.position.x] : undefined;
   const canCapture = selectedUnit?.owner === game.activePlayer && selectedUnit.kind === 'infantry' && selectedTerrain && ['city', 'factory', 'capital'].includes(selectedTerrain.kind) && selectedTerrain.owner !== game.activePlayer;
   const captureAction = canCapture ? `<section class="capture-card"><p class="card-kicker">PROPERTY ACTION</p><strong>${terrainNames[selectedTerrain!.kind]}を占領</strong><span>${selectedTerrain!.owner === 'blue' ? '敵軍' : '中立'}拠点・占領値 ${selectedTerrain!.capturePoints ?? '—'}</span><button class="capture" id="capture" aria-label="この拠点を占領する">占領する</button></section>` : '';
+  const forecasts = selectedUnit && selectedUnit.owner === game.activePlayer
+    ? game.units.filter(unit => unit.owner !== selectedUnit.owner).map(enemy => ({ enemy, forecast: forecastCombat(game, selectedUnit, enemy) })).filter((item): item is { enemy: typeof item.enemy; forecast: Extract<typeof item.forecast, { ok: true }> } => item.forecast.ok)
+    : [];
+  const forecastCard = forecasts.length > 0 ? `<section class="forecast-card"><p class="card-kicker">戦闘予測</p>${forecasts.map(({ enemy, forecast }) => `<div class="forecast-row"><span>${unitNames[enemy.kind]}（耐久 ${enemy.hp}）</span><span class="forecast-damage">与 ${forecast.value.defenderDamage}</span><span class="forecast-counter">被 ${forecast.value.canCounter ? forecast.value.counterDamage : 'なし'}</span></div>`).join('')}${selectedUnit!.hasActed ? '<p class="forecast-note">このユニットは行動済みです。</p>' : ''}</section>` : '';
+  const gameOverOverlay = game.winner ? `<div class="game-over"><div class="game-over-card"><p class="card-kicker">RESULT</p><h2>${game.winner === 'red' ? 'プレイヤーの勝利' : 'CPUの勝利'}</h2><button id="restart" class="end-turn">もう一度</button></div></div>` : '';
   app.innerHTML = `<main class="game-shell">
-    <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択">${maps.map(map => `<option value="${map.id}" ${map.id === selectedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><div class="turn-indicator ${game.activePlayer}"><span>TURN</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する">ターン終了 <span aria-hidden="true">→</span></button></header>
+    <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択">${maps.map(map => `<option value="${map.id}" ${map.id === selectedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択">${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === difficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="turn-indicator ${game.activePlayer}"><span>TURN</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する">ターン終了 <span aria-hidden="true">→</span></button></header>
     <section class="battle-layout"><div class="battlefield-wrap"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(selectedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><div class="board" role="grid" aria-label="${escapeHtml(selectedMap.name)}の戦術マップ" style="grid-template-columns:repeat(${game.board.width},1fr)">${board}</div><div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot"></i>移動可能</span><span><i class="legend-dot fog-dot"></i>未索敵</span><span><i class="legend-unit red-dot"></i>自軍</span><span><i class="legend-unit blue-dot"></i>敵軍</span><span><i class="legend-facility"></i>拠点（市・工・司）</span></div></div>
-    <aside class="command-panel" aria-label="作戦情報"><section class="commander-card"><img src="./assets/commander-red.png" alt="赤軍司令官の肖像"><div><p>COMMANDER</p><h2>RED COMMAND</h2><span>前線司令部</span></div></section>${captureAction}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${game.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${game.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(game, game.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給し、工場では生産できます。</p></aside>
-  </section></main>`;
+    <aside class="command-panel" aria-label="作戦情報"><section class="commander-card"><img src="./assets/commander-red.png" alt="赤軍司令官の肖像"><div><p>COMMANDER</p><h2>RED COMMAND</h2><span>前線司令部</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${game.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${game.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(game, game.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給し、工場では生産できます。</p></aside>
+  </section></main>${gameOverOverlay}`;
   document.querySelector<HTMLSelectElement>('#map')!.onchange = event => { game = start((event.target as HTMLSelectElement).value); selected = undefined; render(); };
+  document.querySelector<HTMLSelectElement>('#difficulty')!.onchange = event => { difficulty = (event.target as HTMLSelectElement).value as CpuDifficulty; render(); };
   document.querySelector<HTMLButtonElement>('#end')!.onclick = () => { game = endTurn(game); selected = undefined; if (game.activePlayer === 'blue') runCpu(); message = 'CPU が行動しました。'; render(); };
   app.querySelectorAll<HTMLButtonElement>('.tile').forEach(tile => tile.onclick = () => act({ x: Number(tile.dataset.x), y: Number(tile.dataset.y) }));
   app.querySelectorAll<HTMLButtonElement>('.produce').forEach(button => button.onclick = () => { const factory = game.board.terrain.flatMap((row,y) => row.map((tile,x) => ({ tile,x,y }))).find(item => item.tile.kind === 'factory' && item.tile.owner === game.activePlayer); if (factory) { const result = produceUnit(game, { x: factory.x, y: factory.y }, button.dataset.kind as UnitKind); if (result.ok) game = result.value; else message = result.error; render(); } });
@@ -75,12 +83,15 @@ function render(): void {
     if (result.ok) { game = result.value; message = '拠点の占領を進めました。'; } else message = result.error;
     render();
   });
+  document.querySelector<HTMLButtonElement>('#restart')?.addEventListener('click', () => {
+    game = start(selectedMap.id); selected = undefined; message = 'ユニットを選択して行動してください。'; render();
+  });
 }
 
 function act(position: Position): void { const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { const result = attackUnit(game, selected, target.id); if (result.ok) { game = result.value; message = '攻撃しました。'; } else message = result.error; selected = undefined; } else if (selected) { const result = moveUnit(game, selected, position); if (result.ok) { game = result.value; message = '移動しました。'; } else message = result.error; } render(); }
 function runCpu(): void {
   for (let steps = 0; steps < 30 && game.activePlayer === 'blue' && !game.winner; steps += 1) {
-    const action = chooseCpuAction(game, 'normal');
+    const action = chooseCpuAction(game, difficulty);
     if (action.type === 'endTurn') { game = endTurn(game); break; }
     const result = action.type === 'attack' ? attackUnit(game, action.unitId, action.targetId)
       : action.type === 'capture' ? captureProperty(game, action.unitId)
