@@ -9,4 +9,6 @@ export const unitStats: Record<UnitKind, UnitStats> = {
   fighter: { cost: 20000, movement: 8, attack: 85, defense: 15, capturePower: 0, range: [1, 1], fuel: 60, ammo: 6, vision: 5 },
   bomber: { cost: 22000, movement: 7, attack: 95, defense: 10, capturePower: 0, range: [1, 1], fuel: 70, ammo: 6, vision: 4 },
   destroyer: { cost: 12000, movement: 6, attack: 70, defense: 30, capturePower: 0, range: [1, 1], fuel: 99, ammo: 9, vision: 4 },
+  recon: { cost: 4000, movement: 7, attack: 35, defense: 15, capturePower: 0, range: [1, 1], fuel: 80, ammo: 6, vision: 5 },
+  rocket: { cost: 12000, movement: 5, attack: 90, defense: 20, capturePower: 0, range: [3, 5], fuel: 50, ammo: 5, vision: 3 },
 };
