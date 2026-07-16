@@ -21,7 +21,7 @@ button { cursor: pointer; }
 
 /* The key art supports the frame; the game board itself stays deliberately legible. */
 .battlefield-wrap { position: relative; overflow: hidden; background: #16251f; }
-.battlefield-wrap::before { position: absolute; inset: 0; content: ''; opacity: .12; background: url('./assets/battlefield-bg.png') center / cover; pointer-events: none; }
+.battlefield-wrap::before { position: absolute; inset: 0; content: ''; opacity: .12; background: url('/assets/battlefield-bg.png') center / cover; pointer-events: none; }
 .battlefield-wrap > * { position: relative; z-index: 1; }
 .board { background: #274d35; }
 .tile { overflow: hidden; background-image: linear-gradient(135deg, #5d9254 0 50%, #52864c 50%); }
@@ -40,3 +40,8 @@ button { cursor: pointer; }
 .forecast-card { display: grid; gap: 8px; padding: 13px; border: 1px solid #40594f; border-radius: 6px; background: #18231f; }.forecast-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #2c3e37; color: #d9e5db; font-size: 11px; }.forecast-row:last-of-type { border-bottom: 0; }.forecast-damage { color: #f6d370; font-weight: 700; }.forecast-counter { color: #ef7d5f; font-weight: 700; }.forecast-note { margin: 0; color: #9db6a8; font-size: 10px; }
 
 .game-over { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #0a1211d9; }.game-over-card { display: grid; gap: 14px; justify-items: center; padding: 34px 46px; text-align: center; border: 1px solid #e8b33b; border-radius: 10px; background: linear-gradient(150deg, #1b2a26, #101817); box-shadow: 0 25px 60px #000a; }.game-over-card h2 { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-size: 38px; color: #fff0b1; }.game-over-card .end-turn { padding: 12px 28px; }
+
+.battlefield-wrap.desert::before { opacity: .18; background-image: url('/assets/desert-frontier.png'); }
+.battlefield-wrap.desert .board { border-color: #7d5b37; }.battlefield-wrap.desert .tile.plain { background-image: linear-gradient(135deg, #c9944e 0 50%, #b77f3e 50%); }.battlefield-wrap.desert .tile.road { background-image: linear-gradient(18deg, transparent 40%, #e0c188 41% 58%, transparent 59%), linear-gradient(#bd8747, #a76f35); }.battlefield-wrap.desert .tile.mountain { filter: sepia(.28) saturate(1.2); }
+.commander-card.blue { border-color: #427bb9; background: linear-gradient(110deg, #142033 30%, transparent), #1e426c; }.commander-card.blue p { color: #bddcff; }.commander-card.blue span { color: #d2e8ff; }
+.unit-recon { border-radius: 50% 50% 16% 16%; }.unit-rocket { clip-path: polygon(12% 0, 88% 0, 100% 40%, 84% 100%, 16% 100%, 0 40%); border-radius: 0; }
