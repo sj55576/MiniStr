@@ -32,12 +32,22 @@ describe('Phase 3 rule-based CPU', () => {
     expect(chooseCpuAction(state)).toEqual({ type: 'produce', factory: { x: 0, y: 0 }, kind: 'tank' });
   });
 
-  it('moves toward an enemy capital when no immediate order is available', () => {
-    const board = createBoard(3, 1);
-    board.terrain[0]![2] = { kind: 'capital', owner: 'blue' };
+  it('advances its full movement range toward an enemy capital in one order', () => {
+    const board = createBoard(6, 1);
+    board.terrain[0]![5] = { kind: 'capital', owner: 'blue' };
     const state = stateWith(createGameState(board), { units: [
       { id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
     ] });
-    expect(chooseCpuAction(state, 'normal')).toEqual({ type: 'move', unitId: 'i', destination: { x: 1, y: 0 } });
+    // Infantry move 3 on open plains, so it should cover three tiles rather than crawling one.
+    expect(chooseCpuAction(state, 'normal')).toEqual({ type: 'move', unitId: 'i', destination: { x: 3, y: 0 } });
+  });
+
+  it('steps onto an adjacent enemy capital so it can capture next', () => {
+    const board = createBoard(3, 1);
+    board.terrain[0]![2] = { kind: 'capital', owner: 'blue' };
+    const state = stateWith(createGameState(board), { units: [
+      { id: 'i', kind: 'infantry', owner: 'red', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ] });
+    expect(chooseCpuAction(state, 'normal')).toEqual({ type: 'move', unitId: 'i', destination: { x: 2, y: 0 } });
   });
 });
