@@ -15,35 +15,63 @@ export function moveUnit(state: GameState, unitId: string, destination: Position
   if (unit.hasMoved) return fail('Unit has already moved');
   if ((unit.fuel ?? unitStats[unit.kind].fuel) <= 0) return fail('Unit is out of fuel');
   if (unitAt(state, destination)) return fail('Destination is occupied');
-  const reachable = reachablePositions(state, unitId);
-  if (!reachable.some(position => samePosition(position, destination))) return fail('Destination is out of range');
-  return succeed({ ...state, units: state.units.map(candidate => candidate.id === unitId ? { ...candidate, position: { ...destination }, hasMoved: true, fuel: (candidate.fuel ?? unitStats[candidate.kind].fuel) - 1 } : candidate) });
+  const costs = movementCosts(state, unitId);
+  const spent = costs.get(positionKey(destination));
+  if (spent === undefined) return fail('Destination is out of range');
+  const fuel = (unit.fuel ?? unitStats[unit.kind].fuel) - spent;
+  const board = releaseCaptureProgress(state.board, unit);
+  return succeed({ ...state, board, units: state.units.map(candidate => candidate.id === unitId ? { ...candidate, position: { ...destination }, hasMoved: true, fuel } : candidate) });
 }
 
-/** All tiles reachable through unoccupied orthogonal tiles within the unit movement budget. */
+/**
+ * Least movement cost to every tile reachable through unoccupied orthogonal tiles,
+ * keyed by "x,y". Uses Dijkstra because terrain costs vary (forest/mountain = 2), and
+ * caps the budget at the unit's remaining fuel so a near-empty tank cannot outrun it.
+ * The unit's own tile is included at cost 0.
+ */
+export function movementCosts(state: GameState, unitId: string): Map<string, number> {
+  const unit = state.units.find(candidate => candidate.id === unitId);
+  if (!unit) return new Map();
+  const budget = Math.min(unitStats[unit.kind].movement, unit.fuel ?? unitStats[unit.kind].fuel);
+  const occupied = new Set(state.units.filter(candidate => candidate.id !== unitId).map(candidate => positionKey(candidate.position)));
+  const costs = new Map<string, number>([[positionKey(unit.position), 0]]);
+  // Small frontier, so a linear-scan priority queue keeps the code simple without hurting performance.
+  const frontier = new Map<string, { position: Position; cost: number }>([[positionKey(unit.position), { position: { ...unit.position }, cost: 0 }]]);
+  while (frontier.size) {
+    let bestKey = '';
+    let best: { position: Position; cost: number } | undefined;
+    for (const [candidateKey, entry] of frontier) if (!best || entry.cost < best.cost) { best = entry; bestKey = candidateKey; }
+    frontier.delete(bestKey);
+    const current = best!;
+    for (const next of [{ x: current.position.x + 1, y: current.position.y }, { x: current.position.x - 1, y: current.position.y }, { x: current.position.x, y: current.position.y + 1 }, { x: current.position.x, y: current.position.y - 1 }]) {
+      const key = positionKey(next);
+      if (occupied.has(key)) continue;
+      const step = movementCost(state.board, next, unit.kind);
+      const total = current.cost + step;
+      if (!Number.isFinite(step) || total > budget || total >= (costs.get(key) ?? Infinity)) continue;
+      costs.set(key, total);
+      frontier.set(key, { position: next, cost: total });
+    }
+  }
+  return costs;
+}
+
+/** Tiles the unit can move to (excludes its current tile), for UI highlighting and AI planning. */
 export function reachablePositions(state: GameState, unitId: string): Position[] {
   const unit = state.units.find(candidate => candidate.id === unitId);
   if (!unit) return [];
-  const budget = unitStats[unit.kind].movement;
-  const occupied = new Set(state.units.filter(candidate => candidate.id !== unitId).map(candidate => positionKey(candidate.position)));
-  const costs = new Map<string, number>([[positionKey(unit.position), 0]]);
-  const queue: Position[] = [{ ...unit.position }];
-  const reached: Position[] = [];
-  while (queue.length) {
-    const current = queue.shift()!;
-    const currentCost = costs.get(positionKey(current))!;
-    for (const next of [{ x: current.x + 1, y: current.y }, { x: current.x - 1, y: current.y }, { x: current.x, y: current.y + 1 }, { x: current.x, y: current.y - 1 }]) {
-      if (occupied.has(positionKey(next))) continue;
-      const step = movementCost(state.board, next, unit.kind);
-      const total = currentCost + step;
-      const key = positionKey(next);
-      if (!Number.isFinite(step) || total > budget || total >= (costs.get(key) ?? Infinity)) continue;
-      costs.set(key, total);
-      queue.push(next);
-      reached.push(next);
-    }
-  }
-  return reached;
+  const origin = positionKey(unit.position);
+  return [...movementCosts(state, unitId).keys()].filter(key => key !== origin).map(key => {
+    const [x, y] = key.split(',').map(Number);
+    return { x: x!, y: y! };
+  });
+}
+
+/** When a unit leaves a property it was partway through capturing, the property recovers to full. */
+function releaseCaptureProgress(board: GameState['board'], unit: GameState['units'][number]) {
+  const tile = terrainAt(board, unit.position);
+  if (!tile || tile.owner === unit.owner || tile.capturePoints === undefined || tile.capturePoints >= 20) return board;
+  return { ...board, terrain: board.terrain.map((row, y) => row.map((cell, x) => samePosition({ x, y }, unit.position) ? { ...cell, capturePoints: 20 } : cell)) };
 }
 
 export function collectIncome(state: GameState): GameState {

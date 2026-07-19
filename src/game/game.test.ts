@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { captureProperty, collectIncome, createBoard, createGameState, endTurn, forecastCombat, moveUnit, nextRandom, produceUnit, terrainRules, unitStats, type GameState } from './index';
+import { captureProperty, collectIncome, createBoard, createGameState, endTurn, forecastCombat, movementCosts, moveUnit, nextRandom, produceUnit, reachablePositions, terrainRules, unitStats, type GameState } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -115,5 +115,48 @@ describe('Resupply on end turn', () => {
     expect(unit.hp).toBe(60);
     expect(unit.fuel).toBe(10);
     expect(unit.ammo).toBe(2);
+  });
+});
+
+describe('Weighted movement, fuel, and capture recovery', () => {
+  it('charges the terrain-weighted path cost, treating forest as two movement points', () => {
+    const board = createBoard(3, 1);
+    board.terrain[0]![1] = { kind: 'forest' };
+    const state = createGameState(board);
+    state.units = [{ id: 't', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 70, ammo: 6, hasMoved: false, hasActed: false }];
+    const costs = movementCosts(state, 't');
+    expect(costs.get('1,0')).toBe(2); // forest
+    expect(costs.get('2,0')).toBe(3); // plain beyond the forest
+  });
+
+  it('deducts the full path cost from fuel rather than a flat one per move', () => {
+    const board = createBoard(3, 1);
+    board.terrain[0]![1] = { kind: 'forest' };
+    const state = createGameState(board);
+    state.units = [{ id: 't', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 70, ammo: 6, hasMoved: false, hasActed: false }];
+    const result = moveUnit(state, 't', { x: 2, y: 0 });
+    expect(result.ok && result.value.units[0]?.fuel).toBe(67); // 70 - (forest 2 + plain 1)
+  });
+
+  it('caps reachable range at remaining fuel, not just the movement stat', () => {
+    const board = createBoard(6, 1);
+    const state = createGameState(board);
+    state.units = [{ id: 't', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 2, ammo: 6, hasMoved: false, hasActed: false }];
+    const reachable = reachablePositions(state, 't').map(p => `${p.x},${p.y}`);
+    expect(reachable).toContain('2,0');
+    expect(reachable).not.toContain('3,0'); // movement 5 would allow it, but only 2 fuel remains
+  });
+
+  it('restores a partially captured property to full when the unit walks away', () => {
+    const board = createBoard(2, 1);
+    board.terrain[0]![0] = { kind: 'city', owner: 'blue', capturePoints: 20 };
+    const state = createGameState(board);
+    state.units = [{ id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 99, ammo: 9, hasMoved: false, hasActed: false }];
+    const captured = captureProperty(state, 'i');
+    expect(captured.ok && captured.value.board.terrain[0]![0]!.capturePoints).toBe(10);
+    const readied = captured.ok ? stateWith(captured.value, { units: [{ ...captured.value.units[0]!, hasMoved: false }] }) : state;
+    const moved = moveUnit(readied, 'i', { x: 1, y: 0 });
+    expect(moved.ok && moved.value.board.terrain[0]![0]!.capturePoints).toBe(20);
+    expect(moved.ok && moved.value.board.terrain[0]![0]!.owner).toBe('blue');
   });
 });

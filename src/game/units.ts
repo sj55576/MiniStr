@@ -2,6 +2,19 @@ import type { UnitKind } from './types';
 
 export interface UnitStats { cost: number; movement: number; attack: number; defense: number; capturePower: number; range: readonly [number, number]; fuel: number; ammo: number; vision: number }
 
+export type UnitCategory = 'soft' | 'armor' | 'air' | 'sea';
+
+export const unitCategory: Record<UnitKind, UnitCategory> = {
+  infantry: 'soft',
+  recon: 'soft',
+  tank: 'armor',
+  artillery: 'armor',
+  rocket: 'armor',
+  fighter: 'air',
+  bomber: 'air',
+  destroyer: 'sea',
+};
+
 export const unitStats: Record<UnitKind, UnitStats> = {
   infantry: { cost: 1000, movement: 3, attack: 55, defense: 10, capturePower: 10, range: [1, 1], fuel: 99, ammo: 9, vision: 2 },
   tank: { cost: 7000, movement: 5, attack: 75, defense: 35, capturePower: 0, range: [1, 1], fuel: 70, ammo: 6, vision: 3 },

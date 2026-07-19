@@ -1,6 +1,7 @@
 import { forecastCombat } from '../game/combat';
+import { reachablePositions } from '../game/commands';
 import { unitAt } from '../game/state';
-import { manhattanDistance, movementCost, terrainAt } from '../game/terrain';
+import { manhattanDistance, terrainAt } from '../game/terrain';
 import type { GameState, PlayerId, Position, Unit, UnitKind } from '../game/types';
 import { unitStats } from '../game/units';
 
@@ -28,7 +29,6 @@ export type CpuAction =
   | { type: 'endTurn' };
 
 const propertyKinds = new Set(['city', 'factory', 'capital']);
-const directions: readonly Position[] = [{ x: 0, y: -1 }, { x: -1, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }];
 type StandardProductionKind = Extract<UnitKind, 'infantry' | 'tank' | 'artillery'>;
 const standardProductionKinds: readonly StandardProductionKind[] = ['infantry', 'tank', 'artillery'];
 
@@ -106,9 +106,8 @@ function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyCon
   for (const unit of orderedUnits(state, player)) {
     if (unit.hasMoved) continue;
     const currentDistance = Math.min(...targets.map(target => manhattanDistance(unit.position, target)));
-    const destination = directions
-      .map(direction => ({ x: unit.position.x + direction.x, y: unit.position.y + direction.y }))
-      .filter(position => !unitAt(state, position) && Number.isFinite(movementCost(state.board, position, unit.kind)))
+    // Advance across the unit's whole movement range (Dijkstra reachability), not one tile at a time.
+    const destination = reachablePositions(state, unit.id)
       .map(position => ({ position, distance: Math.min(...targets.map(target => manhattanDistance(position, target))) }))
       .filter(candidate => candidate.distance < currentDistance)
       .sort((a, b) => a.distance - b.distance || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
