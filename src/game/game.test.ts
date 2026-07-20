@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { captureProperty, collectIncome, createBoard, createGameState, endTurn, forecastCombat, movementCosts, moveUnit, nextRandom, produceUnit, reachablePositions, terrainRules, unitStats, type GameState } from './index';
+import { attackUnit, captureProperty, collectIncome, createBoard, createGameState, endTurn, forecastCombat, movementCosts, moveUnit, nextRandom, produceUnit, reachablePositions, terrainRules, unitStats, type GameState } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -158,5 +158,51 @@ describe('Weighted movement, fuel, and capture recovery', () => {
     const moved = moveUnit(readied, 'i', { x: 1, y: 0 });
     expect(moved.ok && moved.value.board.terrain[0]![0]!.capturePoints).toBe(20);
     expect(moved.ok && moved.value.board.terrain[0]![0]!.owner).toBe('blue');
+  });
+});
+
+
+describe('Fog of war and combat ammunition', () => {
+  it('rejects an attack against an enemy outside the attacker owner\'s vision', () => {
+    const state = createGameState(createBoard(5, 1));
+    state.units = [
+      { id: 'a', kind: 'rocket', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 5, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'tank', owner: 'blue', position: { x: 4, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+    ];
+    const result = attackUnit(state, 'a', 'd');
+    expect(result).toEqual({ ok: false, error: 'Target is not visible' });
+  });
+
+  it('allows an attack against an enemy inside the attacker owner\'s vision', () => {
+    const state = createGameState(createBoard(4, 1));
+    state.units = [
+      { id: 'a', kind: 'rocket', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 5, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'tank', owner: 'blue', position: { x: 3, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+    ];
+    const result = attackUnit(state, 'a', 'd');
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value.units.find(unit => unit.id === 'a')?.ammo).toBe(4);
+  });
+
+  it('consumes one defender ammunition when a counterattack occurs', () => {
+    const state = createGameState(createBoard(2, 1));
+    state.units = [
+      { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, ammo: 1, hasMoved: false, hasActed: false },
+    ];
+    const result = attackUnit(state, 'a', 'd');
+    expect(result.ok && result.value.units.find(unit => unit.id === 'd')?.ammo).toBe(0);
+    expect(result.ok && result.value.units.find(unit => unit.id === 'a')?.hp).toBeLessThan(100);
+  });
+
+  it('leaves attacker health and zero defender ammunition unchanged when no counterattack is possible', () => {
+    const state = createGameState(createBoard(2, 1));
+    state.units = [
+      { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, ammo: 0, hasMoved: false, hasActed: false },
+    ];
+    const result = attackUnit(state, 'a', 'd');
+    expect(result.ok && result.value.units.find(unit => unit.id === 'a')?.hp).toBe(100);
+    expect(result.ok && result.value.units.find(unit => unit.id === 'd')?.ammo).toBe(0);
   });
 });
