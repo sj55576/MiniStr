@@ -60,3 +60,23 @@ describe('Type-effectiveness combat matrix', () => {
     expect(tankRawEquivalent).toBeGreaterThan(0);
   });
 });
+
+
+describe('Counterattack ammunition', () => {
+  it('allows a surviving in-range defender with ammunition to counterattack', () => {
+    const state = createGameState(createBoard(2, 1));
+    const result = forecastCombat(state,
+      { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, ammo: 1, hasMoved: false, hasActed: false });
+    expect(result.ok && result.value.canCounter).toBe(true);
+    expect(result.ok && result.value.counterDamage).toBeGreaterThan(0);
+  });
+
+  it('does not allow a defender with zero ammunition to counterattack', () => {
+    const state = createGameState(createBoard(2, 1));
+    const result = forecastCombat(state,
+      { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, ammo: 0, hasMoved: false, hasActed: false });
+    expect(result.ok && result.value).toMatchObject({ canCounter: false, counterDamage: 0 });
+  });
+});
