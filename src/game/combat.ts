@@ -39,7 +39,8 @@ export function forecastCombat(state: GameState, attacker: Unit, defender: Unit)
   const defenderDamage = Math.max(0, Math.round(raw * (1 - reduction / 100)));
   const defenderRemaining = Math.max(0, defender.hp - defenderDamage);
   const counterRange = unitStats[defender.kind].range;
-  const canCounter = defenderRemaining > 0 && distance >= counterRange[0] && distance <= counterRange[1];
+  const defenderAmmo = defender.ammo ?? unitStats[defender.kind].ammo;
+  const canCounter = defenderRemaining > 0 && defenderAmmo > 0 && distance >= counterRange[0] && distance <= counterRange[1];
   const counterRaw = canCounter ? unitStats[defender.kind].attack * defenderRemaining / 100 * damageMultiplier[defender.kind][unitCategory[attacker.kind]] : 0;
   const counterReduction = defenseStars(attackerTerrain) * attacker.hp / 100;
   const counterDamage = Math.max(0, Math.round(counterRaw * (1 - counterReduction / 100)));

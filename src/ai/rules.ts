@@ -1,5 +1,6 @@
 import { forecastCombat } from '../game/combat';
 import { reachablePositions } from '../game/commands';
+import { visibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
 import { manhattanDistance, terrainAt } from '../game/terrain';
 import type { GameState, PlayerId, Position, Unit, UnitKind } from '../game/types';
@@ -50,10 +51,11 @@ function favorableAttack(state: GameState, attacker: Unit, target: Unit, config:
 }
 
 function attackAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
+  const visibleTargets = visibleEnemies(state, player);
   for (const attacker of orderedUnits(state, player)) {
     if (attacker.hasActed) continue;
-    const target = state.units
-      .filter(unit => unit.owner !== player && favorableAttack(state, attacker, unit, config))
+    const target = visibleTargets
+      .filter(unit => favorableAttack(state, attacker, unit, config))
       .sort((a, b) => {
         const aForecast = forecastCombat(state, attacker, a);
         const bForecast = forecastCombat(state, attacker, b);

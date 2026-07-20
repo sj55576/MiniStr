@@ -51,3 +51,23 @@ describe('Phase 3 rule-based CPU', () => {
     expect(chooseCpuAction(state, 'normal')).toEqual({ type: 'move', unitId: 'i', destination: { x: 2, y: 0 } });
   });
 });
+
+
+describe('CPU fog-of-war attacks', () => {
+  it('does not choose an attack against an in-range enemy outside allied vision', () => {
+    const state = stateWith(createGameState(createBoard(5, 1)), { units: [
+      { id: 'rocket', kind: 'rocket', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 5, hasMoved: false, hasActed: false },
+      { id: 'target', kind: 'tank', owner: 'blue', position: { x: 4, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+    ] });
+    expect(chooseCpuAction(state)).not.toMatchObject({ type: 'attack' });
+  });
+
+  it('chooses the attack once an allied scout makes the target visible', () => {
+    const state = stateWith(createGameState(createBoard(5, 2)), { units: [
+      { id: 'rocket', kind: 'rocket', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 5, hasMoved: false, hasActed: false },
+      { id: 'spotter', kind: 'recon', owner: 'red', position: { x: 0, y: 1 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+      { id: 'target', kind: 'tank', owner: 'blue', position: { x: 4, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+    ] });
+    expect(chooseCpuAction(state)).toEqual({ type: 'attack', unitId: 'rocket', targetId: 'target' });
+  });
+});

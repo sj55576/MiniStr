@@ -2,6 +2,7 @@ import { movementCost, positionKey, samePosition, terrainAt } from './terrain';
 import { playerOwnedProperties, unitAt } from './state';
 import { unitStats } from './units';
 import { forecastCombat } from './combat';
+import { visibleEnemies } from './fog';
 import { otherPlayer, type GameResult, type GameState, type PlayerId, type Position, type UnitKind } from './types';
 
 const fail = <T = GameState>(error: string): GameResult<T> => ({ ok: false, error });
@@ -117,11 +118,12 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
   const defender = state.units.find(unit => unit.id === defenderId);
   if (!attacker || !defender || attacker.owner !== state.activePlayer || attacker.hasActed) return fail('Unit cannot attack');
   if ((attacker.ammo ?? unitStats[attacker.kind].ammo) <= 0) return fail('Unit is out of ammunition');
+  if (defender.owner !== attacker.owner && !visibleEnemies(state, attacker.owner).some(unit => unit.id === defender.id)) return fail('Target is not visible');
   const forecast = forecastCombat(state, attacker, defender);
   if (!forecast.ok) return forecast;
   const nextUnits = state.units.map(unit => {
     if (unit.id === attacker.id) return { ...unit, hp: Math.max(0, unit.hp - forecast.value.counterDamage), ammo: (unit.ammo ?? unitStats[unit.kind].ammo) - 1, hasActed: true };
-    if (unit.id === defender.id) return { ...unit, hp: Math.max(0, unit.hp - forecast.value.defenderDamage) };
+    if (unit.id === defender.id) return { ...unit, hp: Math.max(0, unit.hp - forecast.value.defenderDamage), ammo: forecast.value.canCounter ? (unit.ammo ?? unitStats[unit.kind].ammo) - 1 : unit.ammo };
     return unit;
   }).filter(unit => unit.hp > 0);
   const enemyAlive = nextUnits.some(unit => unit.owner === otherPlayer(state.activePlayer));
