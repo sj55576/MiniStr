@@ -7,3 +7,5 @@ export * from './commands';
 export * from './combat';
 export * from './fog';
 export * from './maps';
+export * from './session';
+
