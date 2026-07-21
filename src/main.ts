@@ -1,5 +1,5 @@
 import './style.css';
-import { attackUnit, captureProperty, createGameState, endTurn, forecastCombat, maps, moveUnit, produceUnit, reachablePositions, type GameState, type Position, type UnitKind, unitStats, visibleEnemies, visiblePositions } from './game';
+import { applyGameCommand, AUTO_SAVE_KEY, deleteSaves, forecastCombat, hasSavedGame, loadGame, MANUAL_SAVE_KEY, maps, saveGame, createGameState, reachablePositions, type GameCommand, type GameState, type Position, type UnitKind, unitStats, visibleEnemies, visiblePositions } from './game';
 import { chooseCpuAction, type CpuDifficulty } from './ai';
 
 let selectedMap = maps[0]!;
@@ -7,6 +7,9 @@ let game = start(selectedMap.id);
 let selected: string | undefined;
 let message = 'ユニットを選択して行動してください。';
 let difficulty: CpuDifficulty = 'normal';
+let initialState = structuredClone(game);
+let commandHistory: GameCommand[] = [];
+let undoStack: { state: GameState; commandCount: number }[] = [];
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const difficultyNames: Record<CpuDifficulty, string> = { easy: '易しい', normal: '普通', hard: '難しい' };
 
@@ -33,6 +36,46 @@ function start(id: string): GameState {
 
 const key = (p: Position) => `${p.x},${p.y}`;
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]!);
+
+
+function resetGame(mapId: string): void {
+  game = start(mapId);
+  initialState = structuredClone(game);
+  commandHistory = [];
+  undoStack = [];
+  selected = undefined;
+}
+function dispatch(command: GameCommand, undoable = false): boolean {
+  const result = applyGameCommand(game, command);
+  if (!result.ok) { message = result.error; return false; }
+  if (undoable && game.activePlayer === 'red') undoStack.push({ state: game, commandCount: commandHistory.length });
+  game = result.value;
+  commandHistory.push(command);
+  return true;
+}
+function persist(key: string): boolean {
+  const result = saveGame(localStorage, key, { mapId: selectedMap.id, difficulty, initialState, commands: commandHistory, gameState: game });
+  message = result.ok ? 'セーブしました。' : result.error;
+  return result.ok;
+}
+function hasSave(): boolean {
+  return hasSavedGame(localStorage);
+}
+function continueSavedGame(): void {
+  const loaded = loadGame(localStorage);
+  if (!loaded) { message = 'セーブデータがありません。'; return; }
+  if (!loaded.ok) { resetGame(selectedMap.id); message = loaded.error; return; }
+  const map = maps.find(candidate => candidate.id === loaded.value.mapId);
+  if (!map) { resetGame(selectedMap.id); message = 'セーブデータのマップは利用できません。'; return; }
+  selectedMap = map;
+  difficulty = loaded.value.difficulty;
+  initialState = structuredClone(loaded.value.initialState);
+  commandHistory = [...loaded.value.commands];
+  game = structuredClone(loaded.value.gameState);
+  undoStack = [];
+  selected = undefined;
+  message = 'セーブデータから再開しました。';
+}
 
 function render(): void {
   const visible = new Set(visiblePositions(game, game.activePlayer).map(key));
@@ -71,36 +114,37 @@ function render(): void {
     : { image: './assets/commander-blue.png', alt: '青軍司令官の肖像', title: 'BLUE COMMAND', label: '敵軍司令部' };
   const mapTheme = selectedMap.id === 'canyon' ? 'desert' : '';
   app.innerHTML = `<main class="game-shell">
-    <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択">${maps.map(map => `<option value="${map.id}" ${map.id === selectedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択">${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === difficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="turn-indicator ${game.activePlayer}"><span>TURN</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する">ターン終了 <span aria-hidden="true">→</span></button></header>
+    <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択">${maps.map(map => `<option value="${map.id}" ${map.id === selectedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択">${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === difficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="save-controls"><button id="continue" class="save-action" ${hasSave() ? '' : 'disabled'}>続きから</button><button id="save" class="save-action">手動セーブ</button><button id="delete-save" class="save-action" ${hasSave() ? '' : 'disabled'}>セーブ削除</button><button id="undo" class="save-action" ${game.activePlayer === 'red' && undoStack.length > 0 ? '' : 'disabled'}>1手戻す</button></div><div class="turn-indicator ${game.activePlayer}"><span>TURN</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する">ターン終了 <span aria-hidden="true">→</span></button></header>
     <section class="battle-layout"><div class="battlefield-wrap ${mapTheme}"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(selectedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><div class="board" role="grid" aria-label="${escapeHtml(selectedMap.name)}の戦術マップ" style="grid-template-columns:repeat(${game.board.width},1fr)">${board}</div><div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot"></i>移動可能</span><span><i class="legend-dot fog-dot"></i>未索敵</span><span><i class="legend-unit red-dot"></i>自軍</span><span><i class="legend-unit blue-dot"></i>敵軍</span><span><i class="legend-facility"></i>拠点（市・工・司）</span></div></div>
     <aside class="command-panel" aria-label="作戦情報"><section class="commander-card ${game.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${game.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${game.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(game, game.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給し、工場では生産できます。</p></aside>
   </section></main>${gameOverOverlay}`;
-  document.querySelector<HTMLSelectElement>('#map')!.onchange = event => { game = start((event.target as HTMLSelectElement).value); selected = undefined; render(); };
+  document.querySelector<HTMLSelectElement>('#map')!.onchange = event => { resetGame((event.target as HTMLSelectElement).value); message = '新しい作戦を開始しました。'; render(); };
   document.querySelector<HTMLSelectElement>('#difficulty')!.onchange = event => { difficulty = (event.target as HTMLSelectElement).value as CpuDifficulty; render(); };
-  document.querySelector<HTMLButtonElement>('#end')!.onclick = () => { game = endTurn(game); selected = undefined; if (game.activePlayer === 'blue') runCpu(); message = 'CPU が行動しました。'; render(); };
+  document.querySelector<HTMLButtonElement>('#end')!.onclick = () => { if (dispatch({ type: 'endTurn' })) { selected = undefined; undoStack = []; if (game.activePlayer === 'blue') runCpu(); } render(); };
+  document.querySelector<HTMLButtonElement>('#continue')!.onclick = () => { continueSavedGame(); render(); };
+  document.querySelector<HTMLButtonElement>('#save')!.onclick = () => { persist(MANUAL_SAVE_KEY); render(); };
+  document.querySelector<HTMLButtonElement>('#delete-save')!.onclick = () => { const result = deleteSaves(localStorage); message = result.ok ? 'セーブデータを削除しました。' : result.error; render(); };
+  document.querySelector<HTMLButtonElement>('#undo')!.onclick = () => { const checkpoint = undoStack.pop(); if (checkpoint) { game = checkpoint.state; commandHistory.length = checkpoint.commandCount; selected = undefined; message = '1手戻しました。'; } render(); };
   app.querySelectorAll<HTMLButtonElement>('.tile').forEach(tile => tile.onclick = () => act({ x: Number(tile.dataset.x), y: Number(tile.dataset.y) }));
-  app.querySelectorAll<HTMLButtonElement>('.produce').forEach(button => button.onclick = () => { const factory = game.board.terrain.flatMap((row,y) => row.map((tile,x) => ({ tile,x,y }))).find(item => item.tile.kind === 'factory' && item.tile.owner === game.activePlayer); if (factory) { const result = produceUnit(game, { x: factory.x, y: factory.y }, button.dataset.kind as UnitKind); if (result.ok) game = result.value; else message = result.error; render(); } });
+  app.querySelectorAll<HTMLButtonElement>('.produce').forEach(button => button.onclick = () => { const factory = game.board.terrain.flatMap((row,y) => row.map((tile,x) => ({ tile,x,y }))).find(item => item.tile.kind === 'factory' && item.tile.owner === game.activePlayer); if (factory) { if (dispatch({ type: 'produce', factory: { x: factory.x, y: factory.y }, kind: button.dataset.kind as UnitKind }, true)) message = '生産しました。'; render(); } });
   document.querySelector<HTMLButtonElement>('#capture')?.addEventListener('click', () => {
     if (!selected) return;
-    const result = captureProperty(game, selected);
-    if (result.ok) { game = result.value; message = '拠点の占領を進めました。'; } else message = result.error;
+    if (dispatch({ type: 'capture', unitId: selected }, true)) message = '拠点の占領を進めました。';
     render();
   });
   document.querySelector<HTMLButtonElement>('#restart')?.addEventListener('click', () => {
-    game = start(selectedMap.id); selected = undefined; message = 'ユニットを選択して行動してください。'; render();
+    resetGame(selectedMap.id); message = 'ユニットを選択して行動してください。'; render();
   });
 }
 
-function act(position: Position): void { const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { const result = attackUnit(game, selected, target.id); if (result.ok) { game = result.value; message = '攻撃しました。'; } else message = result.error; selected = undefined; } else if (selected) { const result = moveUnit(game, selected, position); if (result.ok) { game = result.value; message = '移動しました。'; } else message = result.error; } render(); }
+function act(position: Position): void { const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { if (dispatch({ type: 'attack', unitId: selected, targetId: target.id }, true)) message = '攻撃しました。'; selected = undefined; } else if (selected && dispatch({ type: 'move', unitId: selected, destination: position }, true)) message = '移動しました。'; render(); }
 function runCpu(): void {
   for (let steps = 0; steps < 30 && game.activePlayer === 'blue' && !game.winner; steps += 1) {
     const action = chooseCpuAction(game, difficulty);
-    if (action.type === 'endTurn') { game = endTurn(game); break; }
-    const result = action.type === 'attack' ? attackUnit(game, action.unitId, action.targetId)
-      : action.type === 'capture' ? captureProperty(game, action.unitId)
-      : action.type === 'move' ? moveUnit(game, action.unitId, action.destination)
-      : produceUnit(game, action.factory, action.kind);
-    if (result.ok) game = result.value; else { game = endTurn(game); break; }
+    if (action.type === 'endTurn') { dispatch(action); break; }
+    if (!dispatch(action)) { dispatch({ type: 'endTurn' }); break; }
   }
+  undoStack = [];
+  if (persist(AUTO_SAVE_KEY)) message = 'CPU が行動しました。オートセーブしました。';
 }
 render();
