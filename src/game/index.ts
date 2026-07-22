@@ -10,3 +10,4 @@ export * from './maps';
 export * from './victory';
 export * from './session';
 export * from './replay';
+export * from './campaign';
