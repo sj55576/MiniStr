@@ -65,6 +65,19 @@ describe('versioned save persistence', () => {
     expect(loaded?.ok && loaded.value.gameState).toEqual(gameState);
   });
 
+  it('preserves a valid campaign battle marker and rejects a mismatched marker', () => {
+    const storage = new MemoryStorage();
+    const initialState = withUnit();
+    const saved = saveGame(storage, AUTO_SAVE_KEY, {
+      mapId: 'skirmish', difficulty: 'normal', initialState, commands: [],
+      gameState: initialState, campaignScenarioId: 'skirmish',
+    });
+    expect(saved.ok && saved.value.campaignScenarioId).toBe('skirmish');
+    const raw = JSON.parse(storage.data.get(AUTO_SAVE_KEY)!);
+    raw.campaignScenarioId = 'canyon';
+    expect(parseSavedGame(JSON.stringify(raw))).toEqual({ ok: false, error: 'セーブデータの内容が不正です。' });
+  });
+
   it('rejects malformed JSON and unsupported versions without throwing', () => {
     expect(parseSavedGame('{broken')).toEqual({ ok: false, error: 'セーブデータが壊れています。' });
     expect(parseSavedGame(JSON.stringify({ schemaVersion: 999 }))).toEqual({ ok: false, error: '未対応のセーブデータです。' });
