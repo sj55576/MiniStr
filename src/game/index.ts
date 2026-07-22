@@ -9,3 +9,4 @@ export * from './fog';
 export * from './maps';
 export * from './session';
 
+export * from './replay';

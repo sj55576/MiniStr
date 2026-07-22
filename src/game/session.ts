@@ -61,7 +61,7 @@ const terrainKinds = new Set(['plain', 'forest', 'road', 'mountain', 'sea', 'cit
 const players = new Set(['red', 'blue']);
 const mapIds = new Set(maps.map(map => map.id));
 
-function isGameCommand(value: unknown): value is GameCommand {
+export function isGameCommand(value: unknown): value is GameCommand {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
   if (value.type === 'endTurn') return true;
   if (value.type === 'move') return typeof value.unitId === 'string' && isPosition(value.destination);
@@ -71,7 +71,7 @@ function isGameCommand(value: unknown): value is GameCommand {
     && typeof value.kind === 'string' && unitKinds.has(value.kind as UnitKind);
 }
 
-function isGameState(value: unknown): value is GameState {
+export function isGameState(value: unknown): value is GameState {
   if (!isRecord(value) || !isRecord(value.board) || !Array.isArray(value.board.terrain)
     || !Array.isArray(value.units) || !isRecord(value.players)) return false;
   const width = value.board.width;
