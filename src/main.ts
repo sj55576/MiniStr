@@ -1,5 +1,5 @@
 import './style.css';
-import { applyGameCommand, AUTO_SAVE_KEY, createGameState, createReplay, deleteSaves, describeVictoryCondition, forecastCombat, getConditionProgress, hasSavedGame, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, saveGame, serializeReplay, summarizeReplay, type GameCommand, type GameState, type PlayerId, type Position, type ReplayFile, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visiblePositions } from './game';
+import { applyGameCommand, AUTO_SAVE_KEY, campaignStages, createCampaignProgress, createGameState, createReplay, deleteSaves, describeVictoryCondition, forecastCombat, getConditionProgress, gradeCampaignBattle, hasSavedGame, isCampaignScenarioUnlocked, loadCampaignProgress, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, recordCampaignVictory, saveCampaignProgress, saveGame, serializeReplay, summarizeReplay, type CampaignGradeResult, type GameCommand, type GameState, type PlayerId, type Position, type ReplayFile, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visiblePositions } from './game';
 import { chooseCpuAction, type CpuDifficulty } from './ai';
 
 let selectedMap = maps[0]!;
@@ -14,6 +14,13 @@ interface ReplayRuntime { file: ReplayFile; state: GameState; index: number; pla
 let replay: ReplayRuntime | undefined;
 let replayTimer: number | undefined;
 let briefingOpen = true;
+let campaignMenuOpen = false;
+let campaignReturnToBriefing = false;
+let campaignRun: { scenarioId: string } | undefined;
+let campaignOutcome: { result: CampaignGradeResult; persisted: boolean; nextScenarioId?: string } | undefined;
+const loadedCampaign = loadCampaignProgress(localStorage);
+let campaignProgress = loadedCampaign.ok ? loadedCampaign.value : createCampaignProgress();
+let campaignNotice = loadedCampaign.ok ? '' : loadedCampaign.error;
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const difficultyNames: Record<CpuDifficulty, string> = { easy: '易しい', normal: '普通', hard: '難しい' };
 
@@ -60,6 +67,25 @@ function resetGame(mapId: string): void {
   selected = undefined;
   briefingOpen = true;
 }
+function finishCampaignBattle(): void {
+  if (!campaignRun || game.winner !== 'red' || campaignOutcome) return;
+  const stage = campaignStages.find(candidate => candidate.scenarioId === campaignRun!.scenarioId);
+  const summary = summarizeReplay(initialState, commandHistory, selectedMap.id, difficulty);
+  if (!stage) { campaignNotice = 'キャンペーン作戦が見つかりません。'; return; }
+  if (!summary.ok) { campaignNotice = summary.error; return; }
+  const graded = gradeCampaignBattle({
+    initialState, finalState: game, losses: summary.value.kills.blue,
+    recommendedTurns: stage.recommendedTurns,
+  });
+  if (!graded.ok) { campaignNotice = graded.error; return; }
+  const recorded = recordCampaignVictory(campaignProgress, stage.scenarioId, graded.value.grade);
+  if (!recorded.ok) { campaignNotice = recorded.error; return; }
+  const nextScenarioId = campaignStages[campaignStages.indexOf(stage) + 1]?.scenarioId;
+  const saved = saveCampaignProgress(localStorage, recorded.value);
+  if (saved.ok) campaignProgress = recorded.value;
+  campaignOutcome = { result: graded.value, persisted: saved.ok, nextScenarioId: saved.ok ? nextScenarioId : undefined };
+  campaignNotice = saved.ok ? `${graded.value.grade}評価を記録しました。` : saved.error;
+}
 function dispatch(command: GameCommand, undoable = false): boolean {
   if (replay) return false;
   const result = applyGameCommand(game, command);
@@ -67,10 +93,14 @@ function dispatch(command: GameCommand, undoable = false): boolean {
   if (undoable && game.activePlayer === 'red') undoStack.push({ state: game, commandCount: commandHistory.length });
   game = result.value;
   commandHistory.push(command);
+  finishCampaignBattle();
   return true;
 }
 function persist(key: string): boolean {
-  const result = saveGame(localStorage, key, { mapId: selectedMap.id, difficulty, initialState, commands: commandHistory, gameState: game });
+  const result = saveGame(localStorage, key, {
+    mapId: selectedMap.id, difficulty, initialState, commands: commandHistory, gameState: game,
+    campaignScenarioId: campaignRun?.scenarioId,
+  });
   message = result.ok ? 'セーブしました。' : result.error;
   return result.ok;
 }
@@ -78,6 +108,8 @@ function hasSave(): boolean {
   return hasSavedGame(localStorage);
 }
 function continueSavedGame(): void {
+  campaignRun = undefined;
+  campaignOutcome = undefined;
   const loaded = loadGame(localStorage);
   if (!loaded) { message = 'セーブデータがありません。'; return; }
   if (!loaded.ok) { resetGame(selectedMap.id); message = loaded.error; return; }
@@ -88,10 +120,33 @@ function continueSavedGame(): void {
   initialState = { ...structuredClone(loaded.value.initialState), scenarioId: map.id };
   commandHistory = [...loaded.value.commands];
   game = { ...structuredClone(loaded.value.gameState), scenarioId: map.id };
+  if (loaded.value.campaignScenarioId && isCampaignScenarioUnlocked(campaignProgress, loaded.value.campaignScenarioId)) {
+    campaignRun = { scenarioId: loaded.value.campaignScenarioId };
+  }
   undoStack = [];
   selected = undefined;
   briefingOpen = false;
   message = 'セーブデータから再開しました。';
+}
+
+function openCampaignMenu(): void {
+  campaignReturnToBriefing = briefingOpen;
+  briefingOpen = false;
+  campaignMenuOpen = true;
+  render();
+}
+function startCampaignScenario(scenarioId: string): void {
+  if (!isCampaignScenarioUnlocked(campaignProgress, scenarioId)) {
+    campaignNotice = 'この作戦はまだ解放されていません。';
+    render();
+    return;
+  }
+  campaignRun = { scenarioId };
+  campaignOutcome = undefined;
+  campaignMenuOpen = false;
+  resetGame(scenarioId);
+  message = '作戦ブリーフィングを確認してください。';
+  render();
 }
 
 
@@ -188,26 +243,43 @@ function render(): void {
   const forecastCard = forecasts.length > 0 ? `<section class="forecast-card"><p class="card-kicker">戦闘予測</p>${forecasts.map(({ enemy, forecast }) => `<div class="forecast-row"><span>${unitNames[enemy.kind]}（耐久 ${enemy.hp}）</span><span class="forecast-damage">与 ${forecast.value.defenderDamage}</span><span class="forecast-counter">被 ${forecast.value.canCounter ? forecast.value.counterDamage : 'なし'}</span></div>`).join('')}${selectedUnit!.hasActed ? '<p class="forecast-note">このユニットは行動済みです。</p>' : ''}</section>` : '';
   const summaryResult = !replayMode && renderedGame.winner ? summarizeReplay(initialState, commandHistory, renderedMap.id, difficulty) : undefined;
   const summary = summaryResult?.ok ? summaryResult.value : undefined;
-  const gameOverOverlay = !replayMode && renderedGame.winner ? `<div class="game-over" role="dialog" aria-modal="true" aria-labelledby="result-title"><div class="game-over-card"><p class="card-kicker">RESULT</p><h2 id="result-title">${renderedGame.winner === 'red' ? 'プレイヤーの勝利' : 'CPUの勝利'}</h2>${summary ? `<dl class="result-summary"><div><dt>マップ</dt><dd>${escapeHtml(renderedMap.name)}</dd></div><div><dt>難易度</dt><dd>${difficultyNames[difficulty]}</dd></div><div><dt>勝者</dt><dd>${summary.winner === 'red' ? 'プレイヤー' : 'CPU'}</dd></div><div><dt>ターン数</dt><dd>${summary.turns}</dd></div><div><dt>プレイヤー</dt><dd>撃破 ${summary.kills.red} / 占領 ${summary.captures.red}</dd></div><div><dt>CPU</dt><dd>撃破 ${summary.kills.blue} / 占領 ${summary.captures.blue}</dd></div></dl>` : `<p class="result-error">${escapeHtml(summaryResult && !summaryResult.ok ? summaryResult.error : '対局サマリーを作成できませんでした。')}</p>`}<div class="result-actions"><button id="view-replay" class="end-turn">リプレイを見る</button><button id="export-replay" class="save-action">リプレイを書き出す</button><button id="restart" class="save-action">もう一度</button></div></div></div>` : '';
+  const campaignResult = campaignRun && campaignOutcome
+    ? `<section class="campaign-result"><span class="campaign-grade grade-${campaignOutcome.result.grade.toLowerCase()}">${campaignOutcome.result.grade}</span><div><strong>作戦評価</strong><p>${campaignOutcome.result.score}点・残存 ${campaignOutcome.result.survivingUnits}部隊・損失 ${campaignOutcome.result.losses}部隊</p>${campaignOutcome.persisted ? '' : `<p class="campaign-save-error">${escapeHtml(campaignNotice)}</p>`}</div></section>`
+    : '';
+  const campaignResultActions = campaignRun
+    ? `<button id="campaign-retry" class="save-action">再挑戦</button><button id="campaign-back" class="save-action">キャンペーンへ戻る</button>${campaignOutcome?.nextScenarioId ? '<button id="campaign-next" class="end-turn">次の戦場へ</button>' : ''}`
+    : '<button id="restart" class="save-action">もう一度</button>';
+  const gameOverOverlay = !campaignMenuOpen && !replayMode && renderedGame.winner ? `<div class="game-over" role="dialog" aria-modal="true" aria-labelledby="result-title"><div class="game-over-card"><p class="card-kicker">RESULT</p><h2 id="result-title">${renderedGame.winner === 'red' ? 'プレイヤーの勝利' : 'CPUの勝利'}</h2>${summary ? `<dl class="result-summary"><div><dt>マップ</dt><dd>${escapeHtml(renderedMap.name)}</dd></div><div><dt>難易度</dt><dd>${difficultyNames[difficulty]}</dd></div><div><dt>勝者</dt><dd>${summary.winner === 'red' ? 'プレイヤー' : 'CPU'}</dd></div><div><dt>ターン数</dt><dd>${summary.turns}</dd></div><div><dt>プレイヤー</dt><dd>撃破 ${summary.kills.red} / 占領 ${summary.captures.red}</dd></div><div><dt>CPU</dt><dd>撃破 ${summary.kills.blue} / 占領 ${summary.captures.blue}</dd></div></dl>` : `<p class="result-error">${escapeHtml(summaryResult && !summaryResult.ok ? summaryResult.error : '対局サマリーを作成できませんでした。')}</p>`}${campaignResult}<div class="result-actions"><button id="view-replay" class="save-action">リプレイを見る</button><button id="export-replay" class="save-action">リプレイを書き出す</button>${campaignResultActions}</div></div></div>` : '';
   const commander = renderedGame.activePlayer === 'red'
     ? { image: './assets/commander-red.png', alt: '赤軍司令官の肖像', title: 'RED COMMAND', label: '前線司令部' }
     : { image: './assets/commander-blue.png', alt: '青軍司令官の肖像', title: 'BLUE COMMAND', label: '敵軍司令部' };
   const mapTheme = renderedMap.id === 'canyon' ? 'desert' : '';
   const remainingTurns = renderedMap.turnLimit === undefined ? undefined : Math.max(0, renderedMap.turnLimit - renderedGame.turn);
   const objectivePanel = `<section class="objective-card" aria-labelledby="objective-title"><div class="objective-heading"><div><p class="card-kicker">MISSION</p><h2 id="objective-title">作戦目標</h2></div>${remainingTurns === undefined ? `<span class="turn-limit unlimited">制限なし</span>` : `<span class="turn-limit"><strong>${remainingTurns}</strong> 残りターン</span>`}</div><div class="objective-group victory"><h3>勝利条件</h3><ul>${objectiveList(renderedMap.victoryConditions, renderedGame, 'red')}</ul></div><div class="objective-group defeat"><h3>敗北条件</h3><ul>${objectiveList(renderedMap.defeatConditions, renderedGame, 'blue')}</ul></div></section>`;
-  const briefing = !replayMode && briefingOpen ? `<div class="briefing-overlay" role="dialog" aria-modal="true" aria-labelledby="briefing-title" aria-describedby="briefing-copy"><section class="briefing-card"><p class="card-kicker">OPERATION BRIEFING</p><h2 id="briefing-title">${escapeHtml(renderedMap.name)}</h2><p id="briefing-copy" class="briefing-copy">${escapeHtml(renderedMap.briefing)}</p><div class="briefing-objectives"><section><h3>勝利条件</h3><ul>${renderedMap.victoryConditions.map(condition => `<li>${escapeHtml(describeVictoryCondition(condition))}</li>`).join('')}</ul></section><section><h3>敗北条件</h3><ul>${renderedMap.defeatConditions.map(condition => `<li>${escapeHtml(describeVictoryCondition(condition))}</li>`).join('')}</ul></section></div><div class="briefing-meta"><span>初期資金 <strong>${renderedMap.startingGold}G</strong></span><span>ターン制限 <strong>${renderedMap.turnLimit ?? 'なし'}</strong></span><span>難易度 <strong>${difficultyNames[difficulty]}</strong></span></div><button id="begin-operation" class="end-turn">作戦開始 <span aria-hidden="true">→</span></button></section></div>` : '';
+  const campaignCards = campaignStages.map((stage, index) => {
+    const map = maps.find(candidate => candidate.id === stage.scenarioId)!;
+    const unlocked = isCampaignScenarioUnlocked(campaignProgress, stage.scenarioId);
+    const grade = campaignProgress.bestGrades[stage.scenarioId];
+    return `<article class="campaign-stage ${unlocked ? '' : 'locked'}"><div class="campaign-stage-number">0${index + 1}</div><div><p class="card-kicker">${grade ? 'CLEARED' : unlocked ? 'OPEN' : 'LOCKED'}</p><h3>${escapeHtml(map.name)}</h3><p>${escapeHtml(map.briefing)}</p><span>推奨 ${stage.recommendedTurns} ターン</span></div>${grade ? `<strong class="campaign-grade grade-${grade.toLowerCase()}">${grade}</strong>` : ''}<button class="save-action campaign-start" data-campaign-id="${stage.scenarioId}" ${unlocked ? '' : 'disabled'}>${grade ? '再出撃' : '作戦開始'}</button></article>`;
+  }).join('');
+  const campaignOverlay = campaignMenuOpen ? `<div class="campaign-overlay" role="dialog" aria-modal="true" aria-labelledby="campaign-title"><section class="campaign-screen"><div class="campaign-heading"><div><p class="card-kicker">MINI CAMPAIGN</p><h2 id="campaign-title">国境戦役</h2><p>4つの戦場を勝ち抜き、最高評価を目指してください。</p></div><div class="campaign-heading-actions"><button id="campaign-skirmish" class="save-action">単体戦へ</button><button id="campaign-close" class="save-action">閉じる</button></div></div>${campaignNotice ? `<p class="campaign-notice" aria-live="polite">${escapeHtml(campaignNotice)}</p>` : ''}<div class="campaign-grid">${campaignCards}</div></section></div>` : '';
+  const briefing = !campaignMenuOpen && !replayMode && briefingOpen ? `<div class="briefing-overlay" role="dialog" aria-modal="true" aria-labelledby="briefing-title" aria-describedby="briefing-copy"><section class="briefing-card"><p class="card-kicker">OPERATION BRIEFING</p><h2 id="briefing-title">${escapeHtml(renderedMap.name)}</h2><p id="briefing-copy" class="briefing-copy">${escapeHtml(renderedMap.briefing)}</p><div class="briefing-objectives"><section><h3>勝利条件</h3><ul>${renderedMap.victoryConditions.map(condition => `<li>${escapeHtml(describeVictoryCondition(condition))}</li>`).join('')}</ul></section><section><h3>敗北条件</h3><ul>${renderedMap.defeatConditions.map(condition => `<li>${escapeHtml(describeVictoryCondition(condition))}</li>`).join('')}</ul></section></div><div class="briefing-meta"><span>初期資金 <strong>${renderedMap.startingGold}G</strong></span><span>ターン制限 <strong>${renderedMap.turnLimit ?? 'なし'}</strong></span><span>難易度 <strong>${difficultyNames[difficulty]}</strong></span></div><div class="briefing-actions"><button id="open-campaign-briefing" class="save-action">キャンペーン</button><button id="begin-operation" class="end-turn">${campaignRun ? '作戦開始' : '単体作戦を開始'} <span aria-hidden="true">→</span></button></div></section></div>` : '';
   app.innerHTML = `<main class="game-shell">
-    <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択" ${replayMode ? 'disabled' : ''}>${maps.map(map => `<option value="${map.id}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択" ${replayMode ? 'disabled' : ''}>${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === renderedDifficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="save-controls"><button id="continue" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>続きから</button><button id="save" class="save-action" ${replayMode ? 'disabled' : ''}>手動セーブ</button><button id="delete-save" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>セーブ削除</button><button id="undo" class="save-action" ${!replayMode && renderedGame.activePlayer === 'red' && undoStack.length > 0 ? '' : 'disabled'}>1手戻す</button><button id="import-replay" class="save-action" ${replayMode ? 'disabled' : ''}>JSON取込</button><input id="replay-file" class="visually-hidden" type="file" accept=".json,application/json" aria-label="JSONリプレイファイルを選択"></div><div class="turn-indicator ${renderedGame.activePlayer}"><span>${replayMode ? 'REPLAY' : 'TURN'}</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する" ${replayMode ? 'disabled' : ''}>ターン終了 <span aria-hidden="true">→</span></button></header>
+    <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択" ${replayMode || campaignRun ? 'disabled' : ''}>${maps.map(map => `<option value="${map.id}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択" ${replayMode ? 'disabled' : ''}>${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === renderedDifficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="save-controls"><button id="open-campaign" class="save-action" ${replayMode ? 'disabled' : ''}>キャンペーン</button><button id="continue" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>続きから</button><button id="save" class="save-action" ${replayMode ? 'disabled' : ''}>手動セーブ</button><button id="delete-save" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>対局セーブ削除</button><button id="undo" class="save-action" ${!replayMode && renderedGame.activePlayer === 'red' && undoStack.length > 0 ? '' : 'disabled'}>1手戻す</button><button id="import-replay" class="save-action" ${replayMode ? 'disabled' : ''}>JSON取込</button><input id="replay-file" class="visually-hidden" type="file" accept=".json,application/json" aria-label="JSONリプレイファイルを選択"></div><div class="turn-indicator ${renderedGame.activePlayer}"><span>${replayMode ? 'REPLAY' : campaignRun ? 'CAMPAIGN' : 'TURN'}</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する" ${replayMode ? 'disabled' : ''}>ターン終了 <span aria-hidden="true">→</span></button></header>
     ${replay ? `<section class="replay-toolbar" aria-label="リプレイ再生コントロール"><div><p class="card-kicker">REPLAY</p><strong aria-live="polite">${replay.index} / ${replay.file.commands.length} 手</strong></div><button id="replay-toggle" class="end-turn" aria-label="${replay.playing ? 'リプレイを一時停止' : replay.index >= replay.file.commands.length ? 'リプレイを最初から再生' : 'リプレイを再生'}" ${replay.file.commands.length === 0 ? 'disabled' : ''}>${replay.playing ? '一時停止' : replay.index >= replay.file.commands.length ? 'もう一度再生' : '再生'}</button><button id="replay-step" class="save-action" ${replay.playing || replay.index >= replay.file.commands.length ? 'disabled' : ''}>1手送り</button><label class="replay-speed">速度<select id="replay-speed" aria-label="リプレイ再生速度">${([0.5, 1, 2, 4] as const).map(speed => `<option value="${speed}" ${speed === replay!.speed ? 'selected' : ''}>${speed}x</option>`).join('')}</select></label><button id="replay-exit" class="save-action">リプレイを終了</button></section>` : ''}
     <section class="battle-layout"><div class="battlefield-wrap ${mapTheme}"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(renderedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><div class="board" role="grid" aria-label="${escapeHtml(renderedMap.name)}の戦術マップ" style="grid-template-columns:repeat(${renderedGame.board.width},1fr)">${board}</div><div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot"></i>移動可能</span><span><i class="legend-dot fog-dot"></i>未索敵</span><span><i class="legend-unit red-dot"></i>自軍</span><span><i class="legend-unit blue-dot"></i>敵軍</span><span><i class="legend-facility"></i>拠点（市・工・司）</span></div></div>
     <aside class="command-panel" aria-label="作戦情報">${objectivePanel}<section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(renderedGame, renderedGame.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給し、工場では生産できます。</p></aside>
-  </section></main>${gameOverOverlay}${briefing}`;
-  if (briefing) {
+  </section></main>${gameOverOverlay}${briefing}${campaignOverlay}`;
+  if (briefing || campaignOverlay) {
     app.querySelector('main')?.setAttribute('inert', '');
-    window.setTimeout(() => document.querySelector<HTMLButtonElement>('#begin-operation')?.focus(), 0);
+    window.setTimeout(() => document.querySelector<HTMLButtonElement>(campaignOverlay ? '#campaign-close' : '#begin-operation')?.focus(), 0);
   }
   const guardNormal = (action: () => void) => () => { if (!replay) action(); };
-  document.querySelector<HTMLSelectElement>('#map')!.onchange = guardNormal(() => { resetGame(document.querySelector<HTMLSelectElement>('#map')!.value); message = '作戦ブリーフィングを確認してください。'; render(); });
+  document.querySelector<HTMLSelectElement>('#map')!.onchange = guardNormal(() => {
+    campaignRun = undefined; campaignOutcome = undefined;
+    resetGame(document.querySelector<HTMLSelectElement>('#map')!.value);
+    message = '作戦ブリーフィングを確認してください。'; render();
+  });
   document.querySelector<HTMLSelectElement>('#difficulty')!.onchange = guardNormal(() => { difficulty = document.querySelector<HTMLSelectElement>('#difficulty')!.value as CpuDifficulty; render(); });
   document.querySelector<HTMLButtonElement>('#end')!.onclick = guardNormal(() => { if (dispatch({ type: 'endTurn' })) { selected = undefined; undoStack = []; if (game.activePlayer === 'blue') runCpu(); } render(); });
   document.querySelector<HTMLButtonElement>('#continue')!.onclick = guardNormal(() => { continueSavedGame(); render(); });
@@ -226,6 +298,34 @@ function render(): void {
   document.querySelector<HTMLButtonElement>('#restart')?.addEventListener('click', guardNormal(() => {
     resetGame(selectedMap.id); message = 'ユニットを選択して行動してください。'; render();
   }));
+  document.querySelector<HTMLButtonElement>('#open-campaign')?.addEventListener('click', guardNormal(openCampaignMenu));
+  document.querySelector<HTMLButtonElement>('#open-campaign-briefing')?.addEventListener('click', guardNormal(openCampaignMenu));
+  document.querySelector<HTMLButtonElement>('#campaign-close')?.addEventListener('click', () => {
+    campaignMenuOpen = false;
+    briefingOpen = campaignReturnToBriefing;
+    campaignReturnToBriefing = false;
+    render();
+  });
+  document.querySelector<HTMLButtonElement>('#campaign-skirmish')?.addEventListener('click', () => {
+    campaignRun = undefined; campaignOutcome = undefined; campaignMenuOpen = false;
+    briefingOpen = campaignReturnToBriefing; campaignReturnToBriefing = false;
+    message = '単体戦モードに戻りました。戦域を自由に選択できます。';
+    render();
+  });
+  app.querySelectorAll<HTMLButtonElement>('.campaign-start').forEach(button => {
+    button.addEventListener('click', () => startCampaignScenario(button.dataset.campaignId ?? ''));
+  });
+  document.querySelector<HTMLButtonElement>('#campaign-retry')?.addEventListener('click', () => {
+    if (campaignRun) startCampaignScenario(campaignRun.scenarioId);
+  });
+  document.querySelector<HTMLButtonElement>('#campaign-next')?.addEventListener('click', () => {
+    if (campaignOutcome?.nextScenarioId) startCampaignScenario(campaignOutcome.nextScenarioId);
+  });
+  document.querySelector<HTMLButtonElement>('#campaign-back')?.addEventListener('click', () => {
+    campaignMenuOpen = true;
+    campaignReturnToBriefing = false;
+    render();
+  });
   document.querySelector<HTMLButtonElement>('#view-replay')?.addEventListener('click', guardNormal(() => {
     const created = completedReplay();
     if (!created.ok) { message = created.error; render(); return; }
