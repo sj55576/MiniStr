@@ -3,6 +3,8 @@ import { playerOwnedProperties, unitAt } from './state';
 import { unitStats } from './units';
 import { forecastCombat } from './combat';
 import { visibleEnemies } from './fog';
+import { scenarioById } from './maps';
+import { updateScenarioProgress, updateScenarioScores, withEvaluatedWinner } from './victory';
 import { otherPlayer, type GameResult, type GameState, type PlayerId, type Position, type UnitKind } from './types';
 
 const fail = <T = GameState>(error: string): GameResult<T> => ({ ok: false, error });
@@ -85,6 +87,7 @@ export function collectIncome(state: GameState): GameState {
 }
 
 export function produceUnit(state: GameState, factory: Position, kind: UnitKind): GameResult {
+  if (state.winner) return fail('Game has finished');
   const terrain = terrainAt(state.board, factory);
   if (!terrain || terrain.kind !== 'factory' || terrain.owner !== state.activePlayer) return fail('An owned factory is required');
   if (unitAt(state, factory)) return fail('Factory is occupied');
@@ -108,8 +111,8 @@ export function captureProperty(state: GameState, unitId: string): GameResult {
   if (!power) return fail('Unit cannot capture');
   const remaining = (terrain.capturePoints ?? 20) - power;
   const board = { ...state.board, terrain: state.board.terrain.map((row, y) => row.map((tile, x) => samePosition({ x, y }, unit.position) ? (remaining <= 0 ? { ...tile, owner: unit.owner, capturePoints: 20 } : { ...tile, capturePoints: remaining }) : tile)) };
-  const capturedCapital = terrain.kind === 'capital' && remaining <= 0;
-  return succeed({ ...state, board, winner: capturedCapital ? unit.owner : state.winner, units: state.units.map(candidate => candidate.id === unitId ? { ...candidate, hasActed: true } : candidate) });
+  const next = updateScenarioScores(state, { ...state, board, units: state.units.map(candidate => candidate.id === unitId ? { ...candidate, hasActed: true } : candidate) });
+  return succeed(withEvaluatedWinner(next, [{ type: 'captureCapital' }]));
 }
 
 export function attackUnit(state: GameState, attackerId: string, defenderId: string): GameResult {
@@ -126,13 +129,17 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
     if (unit.id === defender.id) return { ...unit, hp: Math.max(0, unit.hp - forecast.value.defenderDamage), ammo: forecast.value.canCounter ? (unit.ammo ?? unitStats[unit.kind].ammo) - 1 : unit.ammo };
     return unit;
   }).filter(unit => unit.hp > 0);
-  const enemyAlive = nextUnits.some(unit => unit.owner === otherPlayer(state.activePlayer));
-  return succeed({ ...state, units: nextUnits, winner: enemyAlive ? undefined : state.activePlayer });
+  const next = updateScenarioScores(state, { ...state, units: nextUnits });
+  return succeed(withEvaluatedWinner(next, [{ type: 'eliminate' }]));
 }
 
 export function endTurn(state: GameState): GameState {
+  if (state.winner) return state;
+  const actor = state.activePlayer;
+  const scenario = scenarioById(state.scenarioId);
+  const progressed = scenario ? updateScenarioProgress(state, scenario, actor) : state;
   const activePlayer = otherPlayer(state.activePlayer);
-  const refreshed = state.units.map(unit => {
+  const refreshed = progressed.units.map(unit => {
     if (unit.owner !== activePlayer) return unit;
     const terrain = terrainAt(state.board, unit.position);
     const onOwnedProperty = !!terrain && ['city', 'factory', 'capital'].includes(terrain.kind) && terrain.owner === activePlayer;
@@ -140,5 +147,5 @@ export function endTurn(state: GameState): GameState {
     const stats = unitStats[unit.kind];
     return { ...unit, hasMoved: false, hasActed: false, fuel: stats.fuel, ammo: stats.ammo, hp: Math.min(100, unit.hp + 20) };
   });
-  return collectIncome({ ...state, activePlayer, turn: state.turn + 1, units: refreshed });
+  return withEvaluatedWinner(collectIncome({ ...progressed, activePlayer, turn: state.turn + 1, units: refreshed }), [], actor);
 }

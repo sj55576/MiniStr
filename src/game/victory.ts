@@ -1,0 +1,139 @@
+import { scenarioById, type ScenarioDefinition, type VictoryCondition } from './maps';
+import { otherPlayer, type GameState, type PlayerId, type Position } from './types';
+
+export interface ConditionProgress { current: number; target: number; complete: boolean }
+
+const positionKey = ({ x, y }: Position) => `${x},${y}`;
+
+/** Stable key used to persist a hold condition's consecutive-turn progress. */
+export function holdConditionKey(condition: Extract<VictoryCondition, { type: 'hold' }>): string {
+  return `hold:${condition.positions.map(positionKey).join('|')}:${condition.turns}`;
+}
+
+function playerHoldsPositions(state: GameState, player: PlayerId, positions: readonly Position[]): boolean {
+  return positions.length > 0 && positions.every(position => state.units.some(unit =>
+    unit.owner === player && unit.position.x === position.x && unit.position.y === position.y));
+}
+
+export function getConditionProgress(state: GameState, condition: VictoryCondition, player: PlayerId): ConditionProgress {
+  let current: number;
+  let target: number;
+  switch (condition.type) {
+    case 'eliminate': {
+      const enemies = state.units.filter(unit => unit.owner === otherPlayer(player)).length;
+      current = enemies === 0 ? 1 : 0;
+      target = 1;
+      break;
+    }
+    case 'captureCapital': {
+      const scenario = scenarioById(state.scenarioId);
+      const ownedCapitals = state.board.terrain.flat().filter(tile => tile.kind === 'capital' && tile.owner === player).length;
+      const initialOwnedCapitals = scenario?.board.terrain.flat()
+        .filter(tile => tile.kind === 'capital' && tile.owner === player).length;
+      const enemyCapitals = state.board.terrain.flat()
+        .filter(tile => tile.kind === 'capital' && tile.owner === otherPlayer(player)).length;
+      // A scenario capital is captured when the player owns more capitals than at
+      // deployment. This preserves the existing neutral-capital behavior as well as
+      // the usual enemy-HQ capture. Legacy states fall back to the old board-only rule.
+      current = initialOwnedCapitals === undefined
+        ? (enemyCapitals === 0 && ownedCapitals > 0 ? 1 : 0)
+        : (ownedCapitals > initialOwnedCapitals ? 1 : 0);
+      target = 1;
+      break;
+    }
+    case 'hold':
+      current = state.objectiveHoldTurns?.[player]?.[holdConditionKey(condition)] ?? 0;
+      target = condition.turns;
+      break;
+    case 'survive':
+      current = state.turn;
+      target = condition.untilTurn;
+      break;
+    case 'score':
+      current = state.scores?.[player] ?? 0;
+      target = condition.target;
+      break;
+  }
+  return { current, target, complete: current >= target };
+}
+
+export function isVictoryConditionMet(state: GameState, condition: VictoryCondition, player: PlayerId): boolean {
+  return getConditionProgress(state, condition, player).complete;
+}
+
+export function describeVictoryCondition(condition: VictoryCondition): string {
+  switch (condition.type) {
+    case 'eliminate': return '敵部隊を全滅させる';
+    case 'captureCapital': return '敵司令部を占領する';
+    case 'hold': return `指定地点を${condition.turns}ターン連続で保持する`;
+    case 'survive': return `${condition.untilTurn}ターンまで生存する`;
+    case 'score': return `スコア${condition.target}を獲得する`;
+  }
+}
+
+/**
+ * Records one completed turn for hold objectives. Progress is consecutive: leaving
+ * any required tile resets that player's counter. Other players' progress is kept.
+ */
+export function updateScenarioProgress(state: GameState, scenario: ScenarioDefinition, player: PlayerId): GameState {
+  const holdConditions = [...scenario.victoryConditions, ...scenario.defeatConditions]
+    .filter((condition): condition is Extract<VictoryCondition, { type: 'hold' }> => condition.type === 'hold');
+  if (holdConditions.length === 0) return state;
+  const previous = state.objectiveHoldTurns?.[player] ?? {};
+  const next = { ...previous };
+  const updated = new Set<string>();
+  for (const condition of holdConditions) {
+    const key = holdConditionKey(condition);
+    if (updated.has(key)) continue;
+    updated.add(key);
+    next[key] = playerHoldsPositions(state, player, condition.positions) ? (previous[key] ?? 0) + 1 : 0;
+  }
+  return { ...state, objectiveHoldTurns: { ...state.objectiveHoldTurns, [player]: next } };
+}
+
+/** Adds one point per enemy destroyed and per property newly captured in a command. */
+export function updateScenarioScores(previous: GameState, next: GameState): GameState {
+  const scores = { red: previous.scores?.red ?? 0, blue: previous.scores?.blue ?? 0 };
+  const survivors = new Set(next.units.map(unit => unit.id));
+  for (const lost of previous.units) if (!survivors.has(lost.id)) scores[otherPlayer(lost.owner)] += 1;
+  for (let y = 0; y < next.board.height; y += 1) {
+    for (let x = 0; x < next.board.width; x += 1) {
+      const before = previous.board.terrain[y]?.[x]?.owner;
+      const after = next.board.terrain[y]?.[x]?.owner;
+      if (after && after !== before) scores[after] += 1;
+    }
+  }
+  return scores.red === (previous.scores?.red ?? 0) && scores.blue === (previous.scores?.blue ?? 0)
+    ? next : { ...next, scores };
+}
+
+/**
+ * Scenarios describe the red player's victory list and the blue player's mirrored
+ * defeat list. If both sides meet a condition on the same state, the active player
+ * wins, making simultaneous resolution deterministic. A turn limit is inclusive.
+ */
+export function evaluateScenario(state: GameState, scenario: ScenarioDefinition, tieBreaker: PlayerId = state.activePlayer): PlayerId | undefined {
+  if (state.winner) return state.winner;
+  const redWon = scenario.victoryConditions.some(condition => isVictoryConditionMet(state, condition, 'red'));
+  const blueWon = scenario.defeatConditions.some(condition => isVictoryConditionMet(state, condition, 'blue'));
+  if (redWon && blueWon) return tieBreaker;
+  if (redWon) return 'red';
+  if (blueWon) return 'blue';
+  // The numbered turn remains playable; defeat is resolved after advancing past it.
+  if (scenario.turnLimit !== undefined && state.turn > scenario.turnLimit) return 'blue';
+  return undefined;
+}
+
+/** Applies a selected scenario, or only the event-specific rule supplied for legacy states. */
+export function withEvaluatedWinner(
+  state: GameState,
+  legacyConditions: readonly VictoryCondition[] = [],
+  tieBreaker: PlayerId = state.activePlayer,
+): GameState {
+  const scenario = scenarioById(state.scenarioId);
+  const winner = scenario
+    ? evaluateScenario(state, scenario, tieBreaker)
+    : legacyConditions.some(condition => isVictoryConditionMet(state, condition, state.activePlayer))
+      ? state.activePlayer : state.winner;
+  return winner === state.winner ? state : { ...state, winner };
+}

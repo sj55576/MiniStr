@@ -1,5 +1,5 @@
 import './style.css';
-import { applyGameCommand, AUTO_SAVE_KEY, createGameState, createReplay, deleteSaves, forecastCombat, hasSavedGame, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, saveGame, serializeReplay, summarizeReplay, type GameCommand, type GameState, type Position, type ReplayFile, type UnitKind, unitStats, visibleEnemies, visiblePositions } from './game';
+import { applyGameCommand, AUTO_SAVE_KEY, createGameState, createReplay, deleteSaves, describeVictoryCondition, forecastCombat, getConditionProgress, hasSavedGame, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, saveGame, serializeReplay, summarizeReplay, type GameCommand, type GameState, type PlayerId, type Position, type ReplayFile, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visiblePositions } from './game';
 import { chooseCpuAction, type CpuDifficulty } from './ai';
 
 let selectedMap = maps[0]!;
@@ -13,6 +13,7 @@ let undoStack: { state: GameState; commandCount: number }[] = [];
 interface ReplayRuntime { file: ReplayFile; state: GameState; index: number; playing: boolean; speed: 0.5 | 1 | 2 | 4 }
 let replay: ReplayRuntime | undefined;
 let replayTimer: number | undefined;
+let briefingOpen = true;
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const difficultyNames: Record<CpuDifficulty, string> = { easy: '易しい', normal: '普通', hard: '難しい' };
 
@@ -31,7 +32,7 @@ const producibleUnits: readonly UnitKind[] = ['infantry', 'recon', 'tank', 'arti
 function start(id: string): GameState {
   selectedMap = maps.find(map => map.id === id) ?? maps[0]!;
   const state = createGameState(selectedMap.board);
-  return { ...state, players: { red: { gold: selectedMap.startingGold, income: 0 }, blue: { gold: selectedMap.startingGold, income: 0 } }, units: selectedMap.initialUnits.map((unit, index) => {
+  return { ...state, scenarioId: selectedMap.id, players: { red: { gold: selectedMap.startingGold, income: 0 }, blue: { gold: selectedMap.startingGold, income: 0 } }, units: selectedMap.initialUnits.map((unit, index) => {
     const stats = unitStats[unit.kind];
     return { id: `${unit.owner[0]}${index + 1}`, kind: unit.kind, owner: unit.owner, position: { x: unit.x, y: unit.y }, hp: 100, fuel: stats.fuel, ammo: stats.ammo, hasMoved: false, hasActed: false };
   }) };
@@ -40,6 +41,16 @@ function start(id: string): GameState {
 const key = (p: Position) => `${p.x},${p.y}`;
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]!);
 
+function objectiveProgress(condition: VictoryCondition, state: GameState, player: PlayerId): string {
+  const progress = getConditionProgress(state, condition, player);
+  return progress.complete ? '達成' : `${progress.current} / ${progress.target}`;
+}
+
+function objectiveList(conditions: readonly VictoryCondition[], state: GameState, player: PlayerId): string {
+  if (conditions.length === 0) return '<li><span>条件なし</span></li>';
+  return conditions.map(condition => `<li><span>${escapeHtml(describeVictoryCondition(condition))}</span><strong>${escapeHtml(objectiveProgress(condition, state, player))}</strong></li>`).join('');
+}
+
 
 function resetGame(mapId: string): void {
   game = start(mapId);
@@ -47,6 +58,7 @@ function resetGame(mapId: string): void {
   commandHistory = [];
   undoStack = [];
   selected = undefined;
+  briefingOpen = true;
 }
 function dispatch(command: GameCommand, undoable = false): boolean {
   if (replay) return false;
@@ -73,11 +85,12 @@ function continueSavedGame(): void {
   if (!map) { resetGame(selectedMap.id); message = 'セーブデータのマップは利用できません。'; return; }
   selectedMap = map;
   difficulty = loaded.value.difficulty;
-  initialState = structuredClone(loaded.value.initialState);
+  initialState = { ...structuredClone(loaded.value.initialState), scenarioId: map.id };
   commandHistory = [...loaded.value.commands];
-  game = structuredClone(loaded.value.gameState);
+  game = { ...structuredClone(loaded.value.gameState), scenarioId: map.id };
   undoStack = [];
   selected = undefined;
+  briefingOpen = false;
   message = 'セーブデータから再開しました。';
 }
 
@@ -90,8 +103,8 @@ function completedReplay(): ReturnType<typeof createReplay> {
 }
 function beginReplay(file: ReplayFile): void {
   clearReplayTimer();
-  replay = { file: structuredClone(file), state: structuredClone(file.initialState), index: 0, playing: false, speed: 1 };
-  selected = undefined; message = 'リプレイを読み込みました。再生ボタンで開始できます。'; render();
+  replay = { file: structuredClone(file), state: { ...structuredClone(file.initialState), scenarioId: file.mapId }, index: 0, playing: false, speed: 1 };
+  selected = undefined; briefingOpen = false; message = 'リプレイを読み込みました。再生ボタンで開始できます。'; render();
 }
 function advanceReplay(): void {
   if (!replay || replay.index >= replay.file.commands.length) {
@@ -180,14 +193,21 @@ function render(): void {
     ? { image: './assets/commander-red.png', alt: '赤軍司令官の肖像', title: 'RED COMMAND', label: '前線司令部' }
     : { image: './assets/commander-blue.png', alt: '青軍司令官の肖像', title: 'BLUE COMMAND', label: '敵軍司令部' };
   const mapTheme = renderedMap.id === 'canyon' ? 'desert' : '';
+  const remainingTurns = renderedMap.turnLimit === undefined ? undefined : Math.max(0, renderedMap.turnLimit - renderedGame.turn);
+  const objectivePanel = `<section class="objective-card" aria-labelledby="objective-title"><div class="objective-heading"><div><p class="card-kicker">MISSION</p><h2 id="objective-title">作戦目標</h2></div>${remainingTurns === undefined ? `<span class="turn-limit unlimited">制限なし</span>` : `<span class="turn-limit"><strong>${remainingTurns}</strong> 残りターン</span>`}</div><div class="objective-group victory"><h3>勝利条件</h3><ul>${objectiveList(renderedMap.victoryConditions, renderedGame, 'red')}</ul></div><div class="objective-group defeat"><h3>敗北条件</h3><ul>${objectiveList(renderedMap.defeatConditions, renderedGame, 'blue')}</ul></div></section>`;
+  const briefing = !replayMode && briefingOpen ? `<div class="briefing-overlay" role="dialog" aria-modal="true" aria-labelledby="briefing-title" aria-describedby="briefing-copy"><section class="briefing-card"><p class="card-kicker">OPERATION BRIEFING</p><h2 id="briefing-title">${escapeHtml(renderedMap.name)}</h2><p id="briefing-copy" class="briefing-copy">${escapeHtml(renderedMap.briefing)}</p><div class="briefing-objectives"><section><h3>勝利条件</h3><ul>${renderedMap.victoryConditions.map(condition => `<li>${escapeHtml(describeVictoryCondition(condition))}</li>`).join('')}</ul></section><section><h3>敗北条件</h3><ul>${renderedMap.defeatConditions.map(condition => `<li>${escapeHtml(describeVictoryCondition(condition))}</li>`).join('')}</ul></section></div><div class="briefing-meta"><span>初期資金 <strong>${renderedMap.startingGold}G</strong></span><span>ターン制限 <strong>${renderedMap.turnLimit ?? 'なし'}</strong></span><span>難易度 <strong>${difficultyNames[difficulty]}</strong></span></div><button id="begin-operation" class="end-turn">作戦開始 <span aria-hidden="true">→</span></button></section></div>` : '';
   app.innerHTML = `<main class="game-shell">
     <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択" ${replayMode ? 'disabled' : ''}>${maps.map(map => `<option value="${map.id}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択" ${replayMode ? 'disabled' : ''}>${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === renderedDifficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="save-controls"><button id="continue" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>続きから</button><button id="save" class="save-action" ${replayMode ? 'disabled' : ''}>手動セーブ</button><button id="delete-save" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>セーブ削除</button><button id="undo" class="save-action" ${!replayMode && renderedGame.activePlayer === 'red' && undoStack.length > 0 ? '' : 'disabled'}>1手戻す</button><button id="import-replay" class="save-action" ${replayMode ? 'disabled' : ''}>JSON取込</button><input id="replay-file" class="visually-hidden" type="file" accept=".json,application/json" aria-label="JSONリプレイファイルを選択"></div><div class="turn-indicator ${renderedGame.activePlayer}"><span>${replayMode ? 'REPLAY' : 'TURN'}</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する" ${replayMode ? 'disabled' : ''}>ターン終了 <span aria-hidden="true">→</span></button></header>
     ${replay ? `<section class="replay-toolbar" aria-label="リプレイ再生コントロール"><div><p class="card-kicker">REPLAY</p><strong aria-live="polite">${replay.index} / ${replay.file.commands.length} 手</strong></div><button id="replay-toggle" class="end-turn" aria-label="${replay.playing ? 'リプレイを一時停止' : replay.index >= replay.file.commands.length ? 'リプレイを最初から再生' : 'リプレイを再生'}" ${replay.file.commands.length === 0 ? 'disabled' : ''}>${replay.playing ? '一時停止' : replay.index >= replay.file.commands.length ? 'もう一度再生' : '再生'}</button><button id="replay-step" class="save-action" ${replay.playing || replay.index >= replay.file.commands.length ? 'disabled' : ''}>1手送り</button><label class="replay-speed">速度<select id="replay-speed" aria-label="リプレイ再生速度">${([0.5, 1, 2, 4] as const).map(speed => `<option value="${speed}" ${speed === replay!.speed ? 'selected' : ''}>${speed}x</option>`).join('')}</select></label><button id="replay-exit" class="save-action">リプレイを終了</button></section>` : ''}
     <section class="battle-layout"><div class="battlefield-wrap ${mapTheme}"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(renderedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><div class="board" role="grid" aria-label="${escapeHtml(renderedMap.name)}の戦術マップ" style="grid-template-columns:repeat(${renderedGame.board.width},1fr)">${board}</div><div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot"></i>移動可能</span><span><i class="legend-dot fog-dot"></i>未索敵</span><span><i class="legend-unit red-dot"></i>自軍</span><span><i class="legend-unit blue-dot"></i>敵軍</span><span><i class="legend-facility"></i>拠点（市・工・司）</span></div></div>
-    <aside class="command-panel" aria-label="作戦情報"><section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(renderedGame, renderedGame.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給し、工場では生産できます。</p></aside>
-  </section></main>${gameOverOverlay}`;
+    <aside class="command-panel" aria-label="作戦情報">${objectivePanel}<section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(renderedGame, renderedGame.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給し、工場では生産できます。</p></aside>
+  </section></main>${gameOverOverlay}${briefing}`;
+  if (briefing) {
+    app.querySelector('main')?.setAttribute('inert', '');
+    window.setTimeout(() => document.querySelector<HTMLButtonElement>('#begin-operation')?.focus(), 0);
+  }
   const guardNormal = (action: () => void) => () => { if (!replay) action(); };
-  document.querySelector<HTMLSelectElement>('#map')!.onchange = guardNormal(() => { resetGame(document.querySelector<HTMLSelectElement>('#map')!.value); message = '新しい作戦を開始しました。'; render(); });
+  document.querySelector<HTMLSelectElement>('#map')!.onchange = guardNormal(() => { resetGame(document.querySelector<HTMLSelectElement>('#map')!.value); message = '作戦ブリーフィングを確認してください。'; render(); });
   document.querySelector<HTMLSelectElement>('#difficulty')!.onchange = guardNormal(() => { difficulty = document.querySelector<HTMLSelectElement>('#difficulty')!.value as CpuDifficulty; render(); });
   document.querySelector<HTMLButtonElement>('#end')!.onclick = guardNormal(() => { if (dispatch({ type: 'endTurn' })) { selected = undefined; undoStack = []; if (game.activePlayer === 'blue') runCpu(); } render(); });
   document.querySelector<HTMLButtonElement>('#continue')!.onclick = guardNormal(() => { continueSavedGame(); render(); });
@@ -227,7 +247,7 @@ function render(): void {
       clearReplayTimer();
     } else if (replay.file.commands.length > 0) {
       if (replay.index >= replay.file.commands.length) {
-        replay.state = structuredClone(replay.file.initialState);
+        replay.state = { ...structuredClone(replay.file.initialState), scenarioId: replay.file.mapId };
         replay.index = 0;
         message = 'リプレイを最初から再生します。';
       }
@@ -244,6 +264,11 @@ function render(): void {
     render();
   });
   document.querySelector<HTMLButtonElement>('#replay-exit')?.addEventListener('click', leaveReplay);
+  document.querySelector<HTMLButtonElement>('#begin-operation')?.addEventListener('click', () => {
+    briefingOpen = false;
+    message = '作戦を開始しました。ユニットを選択してください。';
+    render();
+  });
 }
 
 function act(position: Position): void { if (replay) return; const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { if (dispatch({ type: 'attack', unitId: selected, targetId: target.id }, true)) message = '攻撃しました。'; selected = undefined; } else if (selected && dispatch({ type: 'move', unitId: selected, destination: position }, true)) message = '移動しました。'; render(); }
