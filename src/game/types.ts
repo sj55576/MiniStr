@@ -37,6 +37,12 @@ export interface GameState {
   activePlayer: PlayerId;
   turn: number;
   winner?: PlayerId;
+  /** Optional for backwards-compatible save/replay loading. */
+  scenarioId?: string;
+  /** Scenario-defined score; absent values are treated as zero. */
+  scores?: Partial<Record<PlayerId, number>>;
+  /** Consecutive completed turns for each hold-condition key. */
+  objectiveHoldTurns?: Partial<Record<PlayerId, Record<string, number>>>;
   /** State for the deterministic LCG; commands must return its next value. */
   rngSeed: number;
   nextUnitId: number;

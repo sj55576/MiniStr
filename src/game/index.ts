@@ -7,6 +7,6 @@ export * from './commands';
 export * from './combat';
 export * from './fog';
 export * from './maps';
+export * from './victory';
 export * from './session';
-
 export * from './replay';

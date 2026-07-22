@@ -61,6 +61,17 @@ const terrainKinds = new Set(['plain', 'forest', 'road', 'mountain', 'sea', 'cit
 const players = new Set(['red', 'blue']);
 const mapIds = new Set(maps.map(map => map.id));
 
+const isScenarioScores = (value: unknown): boolean => {
+  if (!isRecord(value) || Object.keys(value).some(key => !players.has(key))) return false;
+  return Object.values(value).every(score => isFiniteNumber(score) && score >= 0);
+};
+
+const isHoldProgress = (value: unknown): boolean => {
+  if (!isRecord(value) || Object.keys(value).some(key => !players.has(key))) return false;
+  return Object.values(value).every(progress => isRecord(progress)
+    && Object.values(progress).every(turns => Number.isSafeInteger(turns) && (turns as number) >= 0));
+};
+
 export function isGameCommand(value: unknown): value is GameCommand {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
   if (value.type === 'endTurn') return true;
@@ -110,7 +121,10 @@ export function isGameState(value: unknown): value is GameState {
     && Number.isInteger(value.turn) && (value.turn as number) >= 1
     && Number.isSafeInteger(value.rngSeed) && (value.rngSeed as number) >= 0 && (value.rngSeed as number) <= 0xffff_ffff
     && Number.isSafeInteger(value.nextUnitId) && (value.nextUnitId as number) >= 1
-    && (value.winner === undefined || players.has(value.winner as string));
+    && (value.winner === undefined || players.has(value.winner as string))
+    && (value.scenarioId === undefined || (typeof value.scenarioId === 'string' && mapIds.has(value.scenarioId)))
+    && (value.scores === undefined || isScenarioScores(value.scores))
+    && (value.objectiveHoldTurns === undefined || isHoldProgress(value.objectiveHoldTurns));
 }
 
 export function parseSavedGame(serialized: string): GameResult<SavedGame> {
