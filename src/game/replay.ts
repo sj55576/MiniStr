@@ -54,6 +54,11 @@ function isCountPair(value: unknown): value is Record<PlayerId, number> {
     && Number.isSafeInteger(value.blue) && (value.blue as number) >= 0;
 }
 
+function isIsoTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return false;
+  return new Date(value).toISOString() === value;
+}
+
 function isReplaySummary(value: unknown): value is ReplaySummary {
   return isRecord(value)
     && hasOnlyKeys(value, ['mapId', 'difficulty', 'winner', 'turns', 'kills', 'captures'])
@@ -84,7 +89,7 @@ function validateReplayShape(value: unknown): value is ReplayFile {
     || !Array.isArray(value.commands) || value.commands.length > MAX_REPLAY_COMMANDS
     || !value.commands.every(isGameCommand)
     || !isReplaySummary(value.summary)
-    || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) return false;
+    || !isIsoTimestamp(value.createdAt)) return false;
   return value.summary.mapId === value.mapId && value.summary.difficulty === value.difficulty;
 }
 
@@ -104,6 +109,7 @@ export function summarizeReplay(
 
   for (let index = 0; index < commands.length; index += 1) {
     const command = commands[index]!;
+    if (state.winner) return { ok: false, error: `Command ${index + 1}: Game has finished` };
     const previous = state;
     const result = applyGameCommand(previous, command);
     if (!result.ok) return { ok: false, error: `Command ${index + 1}: ${result.error}` };
