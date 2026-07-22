@@ -69,18 +69,44 @@ function isReplaySummary(value: unknown): value is ReplaySummary {
     && isCountPair(value.kills) && isCountPair(value.captures);
 }
 
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (!isRecord(value)) return value;
-  return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalize(value[key])]));
+function hasSafeJsonDepth(value: unknown, maxDepth = 128): boolean {
+  const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+  while (stack.length) {
+    const current = stack.pop()!;
+    if (current.depth > maxDepth) return false;
+    if (Array.isArray(current.value)) {
+      for (const item of current.value) stack.push({ value: item, depth: current.depth + 1 });
+    } else if (isRecord(current.value)) {
+      for (const item of Object.values(current.value)) stack.push({ value: item, depth: current.depth + 1 });
+    }
+  }
+  return true;
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
-  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+  const stack: Array<[unknown, unknown]> = [[left, right]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    if (Object.is(a, b)) continue;
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+      for (let index = 0; index < a.length; index += 1) stack.push([a[index], b[index]]);
+      continue;
+    }
+    if (isRecord(a) || isRecord(b)) {
+      if (!isRecord(a) || !isRecord(b)) return false;
+      const keys = Object.keys(a);
+      if (keys.length !== Object.keys(b).length || !keys.every(key => Object.hasOwn(b, key))) return false;
+      for (const key of keys) stack.push([a[key], b[key]]);
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 function validateReplayShape(value: unknown): value is ReplayFile {
-  if (!isRecord(value)
+  if (!hasSafeJsonDepth(value) || !isRecord(value)
     || !hasOnlyKeys(value, ['schemaVersion', 'mapId', 'difficulty', 'initialState', 'commands', 'finalState', 'summary', 'createdAt'])
     || value.schemaVersion !== REPLAY_SCHEMA_VERSION
     || typeof value.mapId !== 'string' || !mapIds.has(value.mapId)
@@ -200,5 +226,6 @@ export function parseReplay(serialized: string): GameResult<ReplayFile> {
   if (value.schemaVersion !== REPLAY_SCHEMA_VERSION)
     return { ok: false, error: '未対応のリプレイデータです。' };
   if (!validateReplayShape(value)) return { ok: false, error: 'リプレイデータの内容が不正です。' };
-  return validateReplayConsistency(value);
+  try { return validateReplayConsistency(value); }
+  catch { return { ok: false, error: 'リプレイデータの内容が不正です。' }; }
 }
