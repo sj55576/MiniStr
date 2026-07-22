@@ -84,6 +84,19 @@ describe('replay summaries', () => {
     });
   });
 
+  it('rejects commands appended after the result is decided', () => {
+    const result = createReplay({
+      mapId: 'skirmish',
+      difficulty: 'normal',
+      initialState: duel(),
+      commands: [
+        { type: 'attack', unitId: 'r1', targetId: 'b1' },
+        { type: 'endTurn' },
+      ],
+    });
+    expect(result).toEqual({ ok: false, error: 'Command 2: Game has finished' });
+  });
+
   it('rejects an unfinished or illegal command sequence', () => {
     expect(summarizeReplay(duel(), [], 'skirmish', 'normal'))
       .toEqual({ ok: false, error: 'リプレイに対局結果がありません。' });
