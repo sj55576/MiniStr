@@ -185,23 +185,54 @@ function render(): void {
     <section class="battle-layout"><div class="battlefield-wrap ${mapTheme}"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(renderedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><div class="board" role="grid" aria-label="${escapeHtml(renderedMap.name)}の戦術マップ" style="grid-template-columns:repeat(${renderedGame.board.width},1fr)">${board}</div><div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot"></i>移動可能</span><span><i class="legend-dot fog-dot"></i>未索敵</span><span><i class="legend-unit red-dot"></i>自軍</span><span><i class="legend-unit blue-dot"></i>敵軍</span><span><i class="legend-facility"></i>拠点（市・工・司）</span></div></div>
     <aside class="command-panel" aria-label="作戦情報"><section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(game, renderedGame.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給し、工場では生産できます。</p></aside>
   </section></main>${gameOverOverlay}`;
-  document.querySelector<HTMLSelectElement>('#map')!.onchange = event => { resetGame((event.target as HTMLSelectElement).value); message = '新しい作戦を開始しました。'; render(); };
-  document.querySelector<HTMLSelectElement>('#difficulty')!.onchange = event => { difficulty = (event.target as HTMLSelectElement).value as CpuDifficulty; render(); };
-  document.querySelector<HTMLButtonElement>('#end')!.onclick = () => { if (dispatch({ type: 'endTurn' })) { selected = undefined; undoStack = []; if (renderedGame.activePlayer === 'blue') runCpu(); } render(); };
-  document.querySelector<HTMLButtonElement>('#continue')!.onclick = () => { continueSavedGame(); render(); };
-  document.querySelector<HTMLButtonElement>('#save')!.onclick = () => { persist(MANUAL_SAVE_KEY); render(); };
-  document.querySelector<HTMLButtonElement>('#delete-save')!.onclick = () => { const result = deleteSaves(localStorage); message = result.ok ? 'セーブデータを削除しました。' : result.error; render(); };
-  document.querySelector<HTMLButtonElement>('#undo')!.onclick = () => { const checkpoint = undoStack.pop(); if (checkpoint) { game = checkpoint.state; commandHistory.length = checkpoint.commandCount; selected = undefined; message = '1手戻しました。'; } render(); };
-  app.querySelectorAll<HTMLButtonElement>('.tile').forEach(tile => tile.onclick = () => act({ x: Number(tile.dataset.x), y: Number(tile.dataset.y) }));
-  app.querySelectorAll<HTMLButtonElement>('.produce').forEach(button => button.onclick = () => { const factory = renderedGame.board.terrain.flatMap((row,y) => row.map((tile,x) => ({ tile,x,y }))).find(item => item.tile.kind === 'factory' && item.tile.owner === renderedGame.activePlayer); if (factory) { if (dispatch({ type: 'produce', factory: { x: factory.x, y: factory.y }, kind: button.dataset.kind as UnitKind }, true)) message = '生産しました。'; render(); } });
-  document.querySelector<HTMLButtonElement>('#capture')?.addEventListener('click', () => {
-    if (!selected) return;
-    if (dispatch({ type: 'capture', unitId: selected }, true)) message = '拠点の占領を進めました。';
+  const guardNormal = (action: () => void) => () => { if (!replay) action(); };
+  document.querySelector<HTMLSelectElement>('#map')!.onchange = guardNormal(() => { resetGame(document.querySelector<HTMLSelectElement>('#map')!.value); message = '新しい作戦を開始しました。'; render(); });
+  document.querySelector<HTMLSelectElement>('#difficulty')!.onchange = guardNormal(() => { difficulty = document.querySelector<HTMLSelectElement>('#difficulty')!.value as CpuDifficulty; render(); });
+  document.querySelector<HTMLButtonElement>('#end')!.onclick = guardNormal(() => { if (dispatch({ type: 'endTurn' })) { selected = undefined; undoStack = []; if (game.activePlayer === 'blue') runCpu(); } render(); });
+  document.querySelector<HTMLButtonElement>('#continue')!.onclick = guardNormal(() => { continueSavedGame(); render(); });
+  document.querySelector<HTMLButtonElement>('#save')!.onclick = guardNormal(() => { persist(MANUAL_SAVE_KEY); render(); });
+  document.querySelector<HTMLButtonElement>('#delete-save')!.onclick = guardNormal(() => { const result = deleteSaves(localStorage); message = result.ok ? 'セーブデータを削除しました。' : result.error; render(); });
+  document.querySelector<HTMLButtonElement>('#undo')!.onclick = guardNormal(() => { const checkpoint = undoStack.pop(); if (checkpoint) { game = checkpoint.state; commandHistory.length = checkpoint.commandCount; selected = undefined; message = '1手戻しました。'; } render(); });
+  if (!replayMode) {
+    app.querySelectorAll<HTMLButtonElement>('.tile').forEach(tile => tile.onclick = () => act({ x: Number(tile.dataset.x), y: Number(tile.dataset.y) }));
+    app.querySelectorAll<HTMLButtonElement>('.produce').forEach(button => button.onclick = () => { const factory = game.board.terrain.flatMap((row,y) => row.map((tile,x) => ({ tile,x,y }))).find(item => item.tile.kind === 'factory' && item.tile.owner === game.activePlayer); if (factory) { if (dispatch({ type: 'produce', factory: { x: factory.x, y: factory.y }, kind: button.dataset.kind as UnitKind }, true)) message = '生産しました。'; render(); } });
+    document.querySelector<HTMLButtonElement>('#capture')?.addEventListener('click', guardNormal(() => {
+      if (!selected) return;
+      if (dispatch({ type: 'capture', unitId: selected }, true)) message = '拠点の占領を進めました。';
+      render();
+    }));
+  }
+  document.querySelector<HTMLButtonElement>('#restart')?.addEventListener('click', guardNormal(() => {
+    resetGame(selectedMap.id); message = 'ユニットを選択して行動してください。'; render();
+  }));
+  document.querySelector<HTMLButtonElement>('#view-replay')?.addEventListener('click', guardNormal(() => {
+    const created = completedReplay();
+    if (!created.ok) { message = created.error; render(); return; }
+    beginReplay(created.value);
+  }));
+  document.querySelector<HTMLButtonElement>('#export-replay')?.addEventListener('click', guardNormal(downloadReplay));
+  document.querySelector<HTMLButtonElement>('#import-replay')!.onclick = guardNormal(() => document.querySelector<HTMLInputElement>('#replay-file')!.click());
+  document.querySelector<HTMLInputElement>('#replay-file')!.onchange = event => {
+    if (replay) return;
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) void importReplay(file);
+  };
+  document.querySelector<HTMLButtonElement>('#replay-toggle')?.addEventListener('click', () => {
+    if (!replay) return;
+    replay.playing = !replay.playing;
+    if (replay.playing) scheduleReplay(); else clearReplayTimer();
     render();
   });
-  document.querySelector<HTMLButtonElement>('#restart')?.addEventListener('click', () => {
-    resetGame(renderedMap.id); message = 'ユニットを選択して行動してください。'; render();
+  document.querySelector<HTMLButtonElement>('#replay-step')?.addEventListener('click', () => { if (replay && !replay.playing) advanceReplay(); });
+  document.querySelector<HTMLSelectElement>('#replay-speed')?.addEventListener('change', event => {
+    if (!replay) return;
+    replay.speed = Number((event.currentTarget as HTMLSelectElement).value) as ReplayRuntime['speed'];
+    if (replay.playing) scheduleReplay();
+    render();
   });
+  document.querySelector<HTMLButtonElement>('#replay-exit')?.addEventListener('click', leaveReplay);
 }
 
 function act(position: Position): void { const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { if (dispatch({ type: 'attack', unitId: selected, targetId: target.id }, true)) message = '攻撃しました。'; selected = undefined; } else if (selected && dispatch({ type: 'move', unitId: selected, destination: position }, true)) message = '移動しました。'; render(); }
