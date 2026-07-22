@@ -117,6 +117,9 @@ export function isCampaignProgress(value: unknown): value is CampaignProgress {
   if (unlocked.length < 1 || unlocked.length > stageIds.length
     || unlocked.some((id, index) => typeof id !== 'string' || id !== stageIds[index])) return false;
   const unlockedSet = new Set(unlocked as string[]);
+  for (let index = 1; index < unlocked.length; index += 1) {
+    if (!grades.has(value.bestGrades[stageIds[index - 1]!] as CampaignGrade)) return false;
+  }
   for (const [id, grade] of Object.entries(value.bestGrades)) {
     if (!stageIdSet.has(id) || !grades.has(grade as CampaignGrade) || !unlockedSet.has(id)) return false;
   }
