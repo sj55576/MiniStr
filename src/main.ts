@@ -1,5 +1,5 @@
 import './style.css';
-import { applyGameCommand, AUTO_SAVE_KEY, deleteSaves, forecastCombat, hasSavedGame, loadGame, MANUAL_SAVE_KEY, maps, saveGame, createGameState, reachablePositions, type GameCommand, type GameState, type Position, type UnitKind, unitStats, visibleEnemies, visiblePositions } from './game';
+import { applyGameCommand, AUTO_SAVE_KEY, createGameState, createReplay, deleteSaves, forecastCombat, hasSavedGame, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, saveGame, serializeReplay, summarizeReplay, type GameCommand, type GameState, type Position, type ReplayFile, type UnitKind, unitStats, visibleEnemies, visiblePositions } from './game';
 import { chooseCpuAction, type CpuDifficulty } from './ai';
 
 let selectedMap = maps[0]!;
@@ -10,6 +10,9 @@ let difficulty: CpuDifficulty = 'normal';
 let initialState = structuredClone(game);
 let commandHistory: GameCommand[] = [];
 let undoStack: { state: GameState; commandCount: number }[] = [];
+interface ReplayRuntime { file: ReplayFile; state: GameState; index: number; playing: boolean; speed: 0.5 | 1 | 2 | 4 }
+let replay: ReplayRuntime | undefined;
+let replayTimer: number | undefined;
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const difficultyNames: Record<CpuDifficulty, string> = { easy: '易しい', normal: '普通', hard: '難しい' };
 
@@ -75,6 +78,63 @@ function continueSavedGame(): void {
   undoStack = [];
   selected = undefined;
   message = 'セーブデータから再開しました。';
+}
+
+
+function clearReplayTimer(): void {
+  if (replayTimer !== undefined) { window.clearTimeout(replayTimer); replayTimer = undefined; }
+}
+function completedReplay(): ReturnType<typeof createReplay> {
+  return createReplay({ mapId: selectedMap.id, difficulty, initialState, commands: commandHistory });
+}
+function beginReplay(file: ReplayFile): void {
+  clearReplayTimer();
+  replay = { file: structuredClone(file), state: structuredClone(file.initialState), index: 0, playing: false, speed: 1 };
+  selected = undefined; message = 'リプレイを読み込みました。再生ボタンで開始できます。'; render();
+}
+function advanceReplay(): void {
+  if (!replay || replay.index >= replay.file.commands.length) {
+    if (replay) replay.playing = false;
+    clearReplayTimer(); render(); return;
+  }
+  const result = applyGameCommand(replay.state, replay.file.commands[replay.index]!);
+  if (!result.ok) {
+    replay.playing = false; clearReplayTimer();
+    message = \`リプレイを再生できません: \${result.error}\`; render(); return;
+  }
+  replay.state = result.value; replay.index += 1;
+  if (replay.index >= replay.file.commands.length) {
+    replay.playing = false; clearReplayTimer(); message = 'リプレイの再生が完了しました。';
+  }
+  render();
+}
+function scheduleReplay(): void {
+  clearReplayTimer();
+  if (!replay?.playing || replay.index >= replay.file.commands.length) return;
+  replayTimer = window.setTimeout(() => { replayTimer = undefined; advanceReplay(); scheduleReplay(); }, 1000 / replay.speed);
+}
+function leaveReplay(): void {
+  clearReplayTimer(); replay = undefined; selected = undefined;
+  message = game.winner ? '対局結果に戻りました。' : '通常の対局に戻りました。'; render();
+}
+function downloadReplay(): void {
+  const created = completedReplay();
+  if (!created.ok) { message = created.error; render(); return; }
+  const serialized = serializeReplay(created.value);
+  if (!serialized.ok) { message = serialized.error; render(); return; }
+  const url = URL.createObjectURL(new Blob([serialized.value], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url; link.download = \`ministr-\${selectedMap.id}-\${new Date().toISOString().slice(0, 10)}.json\`; link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  message = 'リプレイを書き出しました。'; render();
+}
+async function importReplay(file: File): Promise<void> {
+  if (file.size > MAX_REPLAY_BYTES) { message = 'リプレイデータが大きすぎます。'; render(); return; }
+  let text: string;
+  try { text = await file.text(); } catch { message = 'リプレイファイルを読み込めませんでした。'; render(); return; }
+  const parsed = parseReplay(text);
+  if (!parsed.ok) { message = parsed.error; render(); return; }
+  beginReplay(parsed.value);
 }
 
 function render(): void {
