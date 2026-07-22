@@ -151,7 +151,7 @@ export function createReplay(input: ReplayInput): GameResult<ReplayFile> {
     mapId: input.mapId,
     difficulty: input.difficulty,
     initialState: structuredClone(input.initialState),
-    commands: structuredClone(input.commands),
+    commands: [...structuredClone(input.commands)],
     finalState: replayed.value,
     summary: summary.value,
     createdAt: new Date().toISOString(),
