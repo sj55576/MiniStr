@@ -123,6 +123,7 @@ function continueSavedGame(): void {
   if (loaded.value.campaignScenarioId && isCampaignScenarioUnlocked(campaignProgress, loaded.value.campaignScenarioId)) {
     campaignRun = { scenarioId: loaded.value.campaignScenarioId };
   }
+  finishCampaignBattle();
   undoStack = [];
   selected = undefined;
   briefingOpen = false;
