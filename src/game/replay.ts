@@ -1,0 +1,198 @@
+import { maps } from './maps';
+import {
+  applyGameCommand, isGameCommand, isGameState, replayCommands, type GameCommand,
+} from './session';
+import { otherPlayer, type GameResult, type GameState, type PlayerId } from './types';
+
+export const REPLAY_SCHEMA_VERSION = 1 as const;
+export const MAX_REPLAY_BYTES = 1_000_000;
+const MAX_REPLAY_COMMANDS = 100_000;
+
+export type ReplayDifficulty = 'easy' | 'normal' | 'hard';
+
+export interface ReplaySummary {
+  mapId: string;
+  difficulty: ReplayDifficulty;
+  winner: PlayerId;
+  turns: number;
+  kills: Record<PlayerId, number>;
+  captures: Record<PlayerId, number>;
+}
+
+export interface ReplayFile {
+  schemaVersion: typeof REPLAY_SCHEMA_VERSION;
+  mapId: string;
+  difficulty: ReplayDifficulty;
+  initialState: GameState;
+  commands: GameCommand[];
+  finalState: GameState;
+  summary: ReplaySummary;
+  createdAt: string;
+}
+
+export interface ReplayInput {
+  mapId: string;
+  difficulty: ReplayDifficulty;
+  initialState: GameState;
+  commands: readonly GameCommand[];
+}
+
+const mapIds = new Set(maps.map(map => map.id));
+const difficulties = new Set<ReplayDifficulty>(['easy', 'normal', 'hard']);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value);
+  return actual.length === keys.length && actual.every(key => keys.includes(key));
+}
+
+function isCountPair(value: unknown): value is Record<PlayerId, number> {
+  return isRecord(value) && hasOnlyKeys(value, ['red', 'blue'])
+    && Number.isSafeInteger(value.red) && (value.red as number) >= 0
+    && Number.isSafeInteger(value.blue) && (value.blue as number) >= 0;
+}
+
+function isReplaySummary(value: unknown): value is ReplaySummary {
+  return isRecord(value)
+    && hasOnlyKeys(value, ['mapId', 'difficulty', 'winner', 'turns', 'kills', 'captures'])
+    && typeof value.mapId === 'string' && mapIds.has(value.mapId)
+    && typeof value.difficulty === 'string' && difficulties.has(value.difficulty as ReplayDifficulty)
+    && (value.winner === 'red' || value.winner === 'blue')
+    && Number.isSafeInteger(value.turns) && (value.turns as number) >= 1
+    && isCountPair(value.kills) && isCountPair(value.captures);
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalize(value[key])]));
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+}
+
+function validateReplayShape(value: unknown): value is ReplayFile {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, ['schemaVersion', 'mapId', 'difficulty', 'initialState', 'commands', 'finalState', 'summary', 'createdAt'])
+    || value.schemaVersion !== REPLAY_SCHEMA_VERSION
+    || typeof value.mapId !== 'string' || !mapIds.has(value.mapId)
+    || typeof value.difficulty !== 'string' || !difficulties.has(value.difficulty as ReplayDifficulty)
+    || !isGameState(value.initialState) || !isGameState(value.finalState)
+    || !Array.isArray(value.commands) || value.commands.length > MAX_REPLAY_COMMANDS
+    || !value.commands.every(isGameCommand)
+    || !isReplaySummary(value.summary)
+    || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) return false;
+  return value.summary.mapId === value.mapId && value.summary.difficulty === value.difficulty;
+}
+
+export function summarizeReplay(
+  initialState: GameState,
+  commands: readonly GameCommand[],
+  mapId: string,
+  difficulty: ReplayDifficulty,
+): GameResult<ReplaySummary> {
+  if (!mapIds.has(mapId) || !difficulties.has(difficulty) || !isGameState(initialState)
+    || commands.length > MAX_REPLAY_COMMANDS || !commands.every(isGameCommand))
+    return { ok: false, error: 'リプレイデータの内容が不正です。' };
+
+  let state = structuredClone(initialState);
+  const kills: Record<PlayerId, number> = { red: 0, blue: 0 };
+  const captures: Record<PlayerId, number> = { red: 0, blue: 0 };
+
+  for (let index = 0; index < commands.length; index += 1) {
+    const command = commands[index]!;
+    const previous = state;
+    const result = applyGameCommand(previous, command);
+    if (!result.ok) return { ok: false, error: `Command ${index + 1}: ${result.error}` };
+    state = result.value;
+
+    if (command.type === 'attack') {
+      const survivors = new Set(state.units.map(unit => unit.id));
+      for (const unit of previous.units) {
+        if (!survivors.has(unit.id)) kills[otherPlayer(unit.owner)] += 1;
+      }
+    }
+
+    if (command.type === 'capture') {
+      for (let y = 0; y < state.board.height; y += 1) {
+        for (let x = 0; x < state.board.width; x += 1) {
+          const beforeOwner = previous.board.terrain[y]?.[x]?.owner;
+          const afterOwner = state.board.terrain[y]?.[x]?.owner;
+          if (afterOwner && afterOwner !== beforeOwner) captures[afterOwner] += 1;
+        }
+      }
+    }
+  }
+
+  if (!state.winner) return { ok: false, error: 'リプレイに対局結果がありません。' };
+  return {
+    ok: true,
+    value: { mapId, difficulty, winner: state.winner, turns: state.turn, kills, captures },
+  };
+}
+
+export function createReplay(input: ReplayInput): GameResult<ReplayFile> {
+  if (!isRecord(input) || !hasOnlyKeys(input, ['mapId', 'difficulty', 'initialState', 'commands'])
+    || typeof input.mapId !== 'string' || !mapIds.has(input.mapId)
+    || typeof input.difficulty !== 'string' || !difficulties.has(input.difficulty as ReplayDifficulty)
+    || !isGameState(input.initialState) || !Array.isArray(input.commands)
+    || input.commands.length > MAX_REPLAY_COMMANDS || !input.commands.every(isGameCommand))
+    return { ok: false, error: 'リプレイデータの内容が不正です。' };
+
+  const replayed = replayCommands(input.initialState, input.commands);
+  if (!replayed.ok) return { ok: false, error: `リプレイを再現できません: ${replayed.error}` };
+  const summary = summarizeReplay(input.initialState, input.commands, input.mapId, input.difficulty);
+  if (!summary.ok) return summary;
+  const replay: ReplayFile = {
+    schemaVersion: REPLAY_SCHEMA_VERSION,
+    mapId: input.mapId,
+    difficulty: input.difficulty,
+    initialState: structuredClone(input.initialState),
+    commands: structuredClone(input.commands),
+    finalState: replayed.value,
+    summary: summary.value,
+    createdAt: new Date().toISOString(),
+  };
+  const serialized = JSON.stringify(replay);
+  if (new TextEncoder().encode(serialized).byteLength > MAX_REPLAY_BYTES)
+    return { ok: false, error: 'リプレイデータが大きすぎます。' };
+  return { ok: true, value: replay };
+}
+
+function validateReplayConsistency(replay: ReplayFile): GameResult<ReplayFile> {
+  const replayed = replayCommands(replay.initialState, replay.commands);
+  if (!replayed.ok) return { ok: false, error: `リプレイを再現できません: ${replayed.error}` };
+  if (!sameValue(replayed.value, replay.finalState))
+    return { ok: false, error: 'リプレイの最終状態がコマンド履歴と一致しません。' };
+  const summary = summarizeReplay(replay.initialState, replay.commands, replay.mapId, replay.difficulty);
+  if (!summary.ok) return summary;
+  if (!sameValue(summary.value, replay.summary))
+    return { ok: false, error: 'リプレイの対局サマリーがコマンド履歴と一致しません。' };
+  return { ok: true, value: structuredClone(replay) };
+}
+
+export function serializeReplay(replay: ReplayFile): GameResult<string> {
+  if (!validateReplayShape(replay)) return { ok: false, error: 'リプレイデータの内容が不正です。' };
+  const validated = validateReplayConsistency(replay);
+  if (!validated.ok) return validated;
+  const serialized = JSON.stringify(validated.value);
+  if (new TextEncoder().encode(serialized).byteLength > MAX_REPLAY_BYTES)
+    return { ok: false, error: 'リプレイデータが大きすぎます。' };
+  return { ok: true, value: serialized };
+}
+
+export function parseReplay(serialized: string): GameResult<ReplayFile> {
+  if (new TextEncoder().encode(serialized).byteLength > MAX_REPLAY_BYTES)
+    return { ok: false, error: 'リプレイデータが大きすぎます。' };
+  let value: unknown;
+  try { value = JSON.parse(serialized); }
+  catch { return { ok: false, error: 'リプレイデータが壊れています。' }; }
+  if (!isRecord(value)) return { ok: false, error: 'リプレイデータの形式が不正です。' };
+  if (value.schemaVersion !== REPLAY_SCHEMA_VERSION)
+    return { ok: false, error: '未対応のリプレイデータです。' };
+  if (!validateReplayShape(value)) return { ok: false, error: 'リプレイデータの内容が不正です。' };
+  return validateReplayConsistency(value);
+}
