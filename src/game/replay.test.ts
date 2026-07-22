@@ -134,6 +134,20 @@ describe('versioned replay files', () => {
       .toEqual({ ok: false, error: 'リプレイデータの内容が不正です。' });
   });
 
+  it('rejects deeply nested unknown data without throwing', () => {
+    const serialized = serializeReplay(finishedReplay());
+    if (!serialized.ok) throw new Error(serialized.error);
+    const depth = 20_000;
+    const nested = '{"next":'.repeat(depth) + 'null' + '}'.repeat(depth);
+    const deeplyNested = serialized.value.replace(
+      '"initialState":{',
+      `"initialState":{"unknown":${nested},`,
+    );
+    let result: ReturnType<typeof parseReplay> | undefined;
+    expect(() => { result = parseReplay(deeplyNested); }).not.toThrow();
+    expect(result).toEqual({ ok: false, error: 'リプレイデータの内容が不正です。' });
+  });
+
   it('rejects invalid commands and mismatched final state', () => {
     const replay = finishedReplay();
     const invalidCommand = {
