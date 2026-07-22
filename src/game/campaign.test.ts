@@ -130,6 +130,9 @@ describe('campaign persistence validation', () => {
     expect(isCampaignProgress(gap)).toBe(false);
     expect(isCampaignProgress({ ...gap, unlockedScenarioIds: ['islands', 'skirmish'] })).toBe(false);
     expect(isCampaignProgress({
+      ...createCampaignProgress(NOW), unlockedScenarioIds: ['skirmish', 'islands'],
+    })).toBe(false);
+    expect(isCampaignProgress({
       ...createCampaignProgress(NOW), bestGrades: { islands: 'S' },
     })).toBe(false);
     expect(isCampaignProgress({ ...createCampaignProgress(NOW), unexpected: true })).toBe(false);
