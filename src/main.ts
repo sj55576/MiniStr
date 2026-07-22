@@ -49,6 +49,7 @@ function resetGame(mapId: string): void {
   selected = undefined;
 }
 function dispatch(command: GameCommand, undoable = false): boolean {
+  if (replay) return false;
   const result = applyGameCommand(game, command);
   if (!result.ok) { message = result.error; return false; }
   if (undoable && game.activePlayer === 'red') undoStack.push({ state: game, commandCount: commandHistory.length });
@@ -235,8 +236,9 @@ function render(): void {
   document.querySelector<HTMLButtonElement>('#replay-exit')?.addEventListener('click', leaveReplay);
 }
 
-function act(position: Position): void { const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { if (dispatch({ type: 'attack', unitId: selected, targetId: target.id }, true)) message = '攻撃しました。'; selected = undefined; } else if (selected && dispatch({ type: 'move', unitId: selected, destination: position }, true)) message = '移動しました。'; render(); }
+function act(position: Position): void { if (replay) return; const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { if (dispatch({ type: 'attack', unitId: selected, targetId: target.id }, true)) message = '攻撃しました。'; selected = undefined; } else if (selected && dispatch({ type: 'move', unitId: selected, destination: position }, true)) message = '移動しました。'; render(); }
 function runCpu(): void {
+  if (replay) return;
   for (let steps = 0; steps < 30 && game.activePlayer === 'blue' && !game.winner; steps += 1) {
     const action = chooseCpuAction(game, difficulty);
     if (action.type === 'endTurn') { dispatch(action); break; }
