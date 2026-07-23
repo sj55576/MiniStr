@@ -21,6 +21,8 @@ export interface SavedGame {
   initialState: GameState;
   commands: GameCommand[];
   gameState: GameState;
+  /** Present only when this save belongs to an active campaign battle. */
+  campaignScenarioId?: string;
   savedAt: string;
 }
 
@@ -138,6 +140,7 @@ export function parseSavedGame(serialized: string): GameResult<SavedGame> {
   if (typeof value.mapId !== 'string' || !mapIds.has(value.mapId)
     || !['easy', 'normal', 'hard'].includes(String(value.difficulty))
     || typeof value.savedAt !== 'string' || !isGameState(value.initialState) || !isGameState(value.gameState)
+    || (value.campaignScenarioId !== undefined && value.campaignScenarioId !== value.mapId)
     || !Array.isArray(value.commands) || value.commands.length > 100_000 || !value.commands.every(isGameCommand))
     return { ok: false, error: 'セーブデータの内容が不正です。' };
   const saved = value as unknown as SavedGame;
