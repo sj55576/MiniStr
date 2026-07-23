@@ -145,3 +145,13 @@ button:disabled, select:disabled { cursor: not-allowed; opacity: .45; }
   .campaign-grid { grid-template-columns: 1fr; }
   .campaign-stage { grid-template-columns: auto minmax(0, 1fr) auto; }
 }
+
+/* Accessibility: keep focus and board states legible without relying on color alone. */
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid #fff1a8; outline-offset: 3px; box-shadow: 0 0 0 6px #08110e; }
+.tile:focus-visible { outline: 3px solid #fff7c2; outline-offset: -3px; box-shadow: inset 0 0 0 5px #17211e; }
+.board-instructions { margin: 0 0 9px; color: #c9d8ce; font-size: 11px; line-height: 1.5; }
+.tile-state-marker { position: absolute; z-index: 4; top: 4px; right: 4px; display: grid; width: 16px; height: 16px; place-items: center; color: #151914; font-size: 10px; font-weight: 800; line-height: 1; border: 1px solid currentColor; border-radius: 50%; box-shadow: 0 1px 3px #0008; }
+.selected-marker { color: #fff4dd; background: #8b3028; }.reachable-marker { color: #1d2a20; border-radius: 2px; background: #ffe066; }
+.unit-owner-marker { position: absolute; z-index: 3; top: -7px; left: -7px; display: grid; width: 15px; height: 15px; place-items: center; color: #fff; font-size: 8px; font-style: normal; font-weight: 800; line-height: 1; border: 1px solid #fff; border-radius: 50%; background: #25342c; text-shadow: none; }.unit.red .unit-owner-marker { border-radius: 2px; background: #8b3028; }.unit.blue .unit-owner-marker { background: #1f5f9d; }
+.legend-dot, .legend-unit, .legend-facility { display: inline-grid; place-items: center; color: #15211c; font-size: 8px; font-style: normal; font-weight: 800; line-height: 1; }.legend-dot, .legend-unit { width: 15px; height: 15px; }.reachable-dot { border-radius: 2px; }.fog-dot { color: #fff; border: 1px solid #a6b6ac; }.red-dot { border-radius: 2px; color: #fff; }.blue-dot { color: #fff; }.legend-facility { color: #15211c; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
