@@ -14,15 +14,15 @@ export function isPropertyTerrainKind(kind: TerrainKind): kind is PropertyTerrai
  * planning agree on which facilities may build each unit.
  *
  * Aircraft remain factory-built to preserve the existing production behavior;
- * the only naval unit currently implemented, destroyer, is port-only.
+ * naval units are port-only.
  */
 export const productionKindsByTerrain: Partial<Record<TerrainKind, readonly UnitKind[]>> = {
   factory: ['infantry', 'recon', 'tank', 'artillery', 'rocket', 'fighter', 'bomber'],
-  port: ['destroyer'],
+  port: ['destroyer', 'landingShip'],
 };
 
 export const allProducibleUnitKinds: readonly UnitKind[] = [
-  'infantry', 'recon', 'tank', 'artillery', 'rocket', 'fighter', 'bomber', 'destroyer',
+  'infantry', 'recon', 'tank', 'artillery', 'rocket', 'fighter', 'bomber', 'destroyer', 'landingShip',
 ];
 
 export function canProduceUnit(terrain: TerrainKind, unit: UnitKind): boolean {
