@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attackUnit, captureProperty, collectIncome, createBoard, createGameState, endTurn, forecastCombat, movementCosts, moveUnit, nextRandom, produceUnit, reachablePositions, terrainRules, unitStats, type GameState } from './index';
+import { attackUnit, captureProperty, collectIncome, createBoard, createGameState, endTurn, forecastCombat, movementCosts, moveUnit, nextRandom, produceUnit, reachablePositions, terrainRules, unitStats, isGameState, type GameState } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -204,5 +204,46 @@ describe('Fog of war and combat ammunition', () => {
     const result = attackUnit(state, 'a', 'd');
     expect(result.ok && result.value.units.find(unit => unit.id === 'a')?.hp).toBe(100);
     expect(result.ok && result.value.units.find(unit => unit.id === 'd')?.ammo).toBe(0);
+  });
+});
+
+
+describe('Phase 6.1 ports and naval production', () => {
+  it('allows infantry and destroyers to enter a port', () => {
+    expect(terrainRules.port.movement.infantry).toBe(1);
+    expect(terrainRules.port.movement.destroyer).toBe(1);
+    expect(terrainRules.port.defense).toBe(3);
+  });
+
+  it('lets infantry capture a port, which then contributes income', () => {
+    const board = createBoard(1, 1, { kind: 'port', owner: 'blue', capturePoints: 20 });
+    const base = createGameState(board);
+    const first = captureProperty(stateWith(base, { units: [{ id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false }] }), 'i');
+    expect(first.ok && first.value.board.terrain[0]?.[0]?.capturePoints).toBe(10);
+    const secondState = first.ok ? stateWith(first.value, { units: [{ ...first.value.units[0]!, hasActed: false }] }) : base;
+    const second = captureProperty(secondState, 'i');
+    expect(second.ok && second.value.board.terrain[0]?.[0]?.owner).toBe('red');
+    expect(second.ok && collectIncome(second.value).players.red.income).toBe(1000);
+  });
+
+  it('resupplies a unit on an owned port', () => {
+    const state = createGameState(createBoard(1, 1, { kind: 'port', owner: 'red' }));
+    state.units = [{ id: 'd', kind: 'destroyer', owner: 'red', position: { x: 0, y: 0 }, hp: 60, fuel: 10, ammo: 2, hasMoved: true, hasActed: true }];
+    const afterRedTurn = endTurn(endTurn(state));
+    expect(afterRedTurn.units[0]).toMatchObject({ hp: 80, fuel: unitStats.destroyer.fuel, ammo: unitStats.destroyer.ammo });
+  });
+
+  it('restricts destroyer production to owned ports without regressing factory production', () => {
+    const factoryState = stateWith(createGameState(createBoard(1, 1, { kind: 'factory', owner: 'red' })), { players: { red: { gold: 20_000, income: 0 }, blue: { gold: 0, income: 0 } } });
+    expect(produceUnit(factoryState, { x: 0, y: 0 }, 'destroyer')).toEqual({ ok: false, error: 'An owned compatible production facility is required' });
+    expect(produceUnit(factoryState, { x: 0, y: 0 }, 'infantry').ok).toBe(true);
+
+    const portState = stateWith(createGameState(createBoard(1, 1, { kind: 'port', owner: 'red' })), { players: { red: { gold: 20_000, income: 0 }, blue: { gold: 0, income: 0 } } });
+    expect(produceUnit(portState, { x: 0, y: 0 }, 'destroyer').ok).toBe(true);
+    expect(produceUnit(portState, { x: 0, y: 0 }, 'infantry')).toEqual({ ok: false, error: 'An owned compatible production facility is required' });
+  });
+
+  it('accepts port terrain in serialized game state validation', () => {
+    expect(isGameState(createGameState(createBoard(1, 1, { kind: 'port', owner: 'red' })))).toBe(true);
   });
 });
