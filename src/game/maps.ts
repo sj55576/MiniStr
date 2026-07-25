@@ -1,4 +1,5 @@
-import { isPropertyTerrainKind } from './facilities';\nimport { createBoard } from './state';
+import { isPropertyTerrainKind } from './facilities';
+import { createBoard } from './state';
 import type { Board, PlayerId, Position, TerrainKind, UnitKind } from './types';
 
 export interface InitialUnit { kind: UnitKind; owner: PlayerId; x: number; y: number }
