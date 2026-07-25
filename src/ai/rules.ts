@@ -3,7 +3,7 @@ import { reachablePositions } from '../game/commands';
 import { visibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
 import { manhattanDistance, terrainAt } from '../game/terrain';
-import type { GameState, PlayerId, Position, Unit, UnitKind } from '../game/types';
+import { isDeployedUnit, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
 import { unitStats } from '../game/units';
 
 /** The CPU does not use hidden randomness: the same state always gives the same order. */
@@ -33,16 +33,16 @@ const propertyKinds = new Set(['city', 'factory', 'port', 'capital']);
 type StandardProductionKind = Extract<UnitKind, 'infantry' | 'tank' | 'artillery'>;
 const standardProductionKinds: readonly StandardProductionKind[] = ['infantry', 'tank', 'artillery'];
 
-function orderedUnits(state: GameState, player: PlayerId): Unit[] {
-  return state.units.filter(unit => unit.owner === player).sort((a, b) => a.id.localeCompare(b.id));
+function orderedUnits(state: GameState, player: PlayerId): DeployedUnit[] {
+  return state.units.filter((unit): unit is DeployedUnit => unit.owner === player && isDeployedUnit(unit)).sort((a, b) => a.id.localeCompare(b.id));
 }
 
-function canCapture(state: GameState, unit: Unit): boolean {
+function canCapture(state: GameState, unit: DeployedUnit): boolean {
   const tile = terrainAt(state.board, unit.position);
   return !unit.hasActed && unitStats[unit.kind].capturePower > 0 && !!tile && propertyKinds.has(tile.kind) && tile.owner !== unit.owner;
 }
 
-function favorableAttack(state: GameState, attacker: Unit, target: Unit, config: CpuDifficultyConfig): boolean {
+function favorableAttack(state: GameState, attacker: DeployedUnit, target: Unit, config: CpuDifficultyConfig): boolean {
   const result = forecastCombat(state, attacker, target);
   if (!result.ok) return false;
   // A certain destruction is always worthwhile. Otherwise difficulty controls accepted risk.
@@ -98,7 +98,7 @@ function objectives(state: GameState, player: PlayerId, config: CpuDifficultyCon
     if (!tile || tile.owner === player || !propertyKinds.has(tile.kind)) continue;
     (tile.kind === 'capital' ? capitals : properties).push({ x, y });
   }
-  const enemies = state.units.filter(unit => unit.owner !== player).map(unit => unit.position);
+  const enemies = state.units.filter((unit): unit is DeployedUnit => unit.owner !== player && isDeployedUnit(unit)).map(unit => unit.position);
   return config.prioritizeCapital ? [...capitals, ...properties, ...enemies] : [...properties, ...capitals, ...enemies];
 }
 
