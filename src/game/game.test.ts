@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, disembarkUnit, embarkUnit, endTurn, forecastCombat, isGameCommand, isGameState, movementCosts, moveUnit, nextRandom, produceUnit, reachablePositions, replayCommands, terrainRules, unitAt, unitStats, type GameState } from './index';
+import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, disembarkUnit, embarkUnit, endTurn, forecastCombat, isGameCommand, isGameState, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, replayCommands, saveGame, serializeReplay, terrainRules, unitAt, unitStats, type GameCommand, type GameState, type StorageLike } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -345,5 +345,91 @@ describe('Phase 6.2 landing ships and embarked infantry', () => {
     expect(produceUnit(port, { x: 0, y: 0 }, 'landingShip').ok).toBe(true);
     const factory = stateWith(createGameState(createBoard(1, 1, { kind: 'factory', owner: 'red' })), { players: { red: { gold: 10_000, income: 0 }, blue: { gold: 0, income: 0 } } });
     expect(produceUnit(factory, { x: 0, y: 0 }, 'landingShip')).toEqual({ ok: false, error: 'An owned compatible production facility is required' });
+  });
+});
+
+describe('Phase 6.4 transport save and replay compatibility', () => {
+  const transportVictory = (): { initialState: GameState; commands: GameCommand[] } => {
+    const board = createBoard(4, 1, { kind: 'sea' });
+    board.terrain[0]![0] = { kind: 'plain' };
+    board.terrain[0]![3] = { kind: 'capital', owner: 'blue', capturePoints: 10 };
+    const initialState = createGameState(board);
+    initialState.units = [
+      { id: 'infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'ship', kind: 'landingShip', owner: 'red', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    return {
+      initialState,
+      commands: [
+        { type: 'embark', unitId: 'infantry', transportId: 'ship' },
+        { type: 'endTurn' }, { type: 'endTurn' },
+        { type: 'move', unitId: 'ship', destination: { x: 2, y: 0 } },
+        { type: 'endTurn' }, { type: 'endTurn' },
+        { type: 'disembark', transportId: 'ship', destination: { x: 3, y: 0 } },
+        { type: 'endTurn' }, { type: 'endTurn' },
+        { type: 'capture', unitId: 'infantry' },
+      ],
+    };
+  };
+
+  const storage = (): StorageLike & { value?: string } => {
+    const memory: StorageLike & { value?: string } = {
+      getItem: () => memory.value ?? null,
+      setItem(_key, value) { memory.value = value; },
+      removeItem: () => { memory.value = undefined; },
+    };
+    return memory;
+  };
+
+  it('round-trips deterministic embark and disembark history through saves and replays', () => {
+    const { initialState, commands } = transportVictory();
+    const replayed = replayCommands(initialState, commands);
+    expect(replayed.ok && replayed.value.winner).toBe('red');
+    if (!replayed.ok) return;
+
+    const memory = storage();
+    const saved = saveGame(memory, 'transport', {
+      mapId: 'skirmish', difficulty: 'normal', initialState, commands, gameState: replayed.value,
+    });
+    expect(saved.ok).toBe(true);
+    const loaded = parseSavedGame(memory.value!);
+    expect(loaded).toEqual(saved);
+
+    const created = createReplay({ mapId: 'skirmish', difficulty: 'normal', initialState, commands });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const serialized = serializeReplay(created.value);
+    expect(serialized.ok).toBe(true);
+    if (!serialized.ok) return;
+    const imported = parseReplay(serialized.value);
+    expect(imported).toEqual(created);
+    expect(imported.ok && serializeReplay(imported.value)).toEqual(serialized);
+  });
+
+  it('keeps pre-transport v1 saves valid but safely rejects broken cargo links', () => {
+    const legacy = createGameState(createBoard(1, 1));
+    legacy.units = [{ id: 'legacy-infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false }];
+    const legacySaved = {
+      schemaVersion: 1, mapId: 'skirmish', difficulty: 'easy', initialState: legacy,
+      commands: [], gameState: legacy, savedAt: '2026-07-25T00:00:00.000Z',
+    };
+    expect(parseSavedGame(JSON.stringify(legacySaved)).ok).toBe(true);
+
+    const { initialState, commands } = transportVictory();
+    const replayed = replayCommands(initialState, commands);
+    if (!replayed.ok) return;
+    const malformedSave = {
+      ...legacySaved, initialState, commands,
+      gameState: { ...replayed.value, units: replayed.value.units.map(unit => unit.id === 'infantry'
+        ? { ...unit, position: undefined, embarkedIn: 'missing-ship' }
+        : unit) },
+    };
+    expect(() => parseSavedGame(JSON.stringify(malformedSave))).not.toThrow();
+    expect(parseSavedGame(JSON.stringify(malformedSave))).toEqual({ ok: false, error: 'セーブデータの内容が不正です。' });
+    const memory = storage();
+    expect(saveGame(memory, 'malformed', {
+      mapId: 'skirmish', difficulty: 'normal', initialState, commands, gameState: malformedSave.gameState,
+    })).toEqual({ ok: false, error: 'セーブデータの内容が不正です。' });
+    expect(memory.value).toBeUndefined();
   });
 });

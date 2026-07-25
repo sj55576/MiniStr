@@ -2,6 +2,12 @@ import { attackUnit, captureProperty, disembarkUnit, embarkUnit, endTurn, moveUn
 import { maps } from './maps';
 import type { GameResult, GameState, Position, UnitKind } from './types';
 
+/**
+ * Schema v1 is additive: `Unit.embarkedIn` is optional, so saves created before
+ * landing ships (where every unit has a position) remain valid.  Bump this only
+ * for an incompatible serialized shape; malformed cargo is rejected by
+ * `isGameState` instead of being repaired during load.
+ */
 export const SAVE_SCHEMA_VERSION = 1 as const;
 export const MAX_SAVE_BYTES = 1_000_000;
 export const MANUAL_SAVE_KEY = 'ministr.save.manual';
@@ -78,6 +84,32 @@ const isHoldProgress = (value: unknown): boolean => {
     && Object.values(progress).every(turns => Number.isSafeInteger(turns) && (turns as number) >= 0));
 };
 
+function sameValue(left: unknown, right: unknown): boolean {
+  const stack: Array<[unknown, unknown]> = [[left, right]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    if (Object.is(a, b)) continue;
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+      for (let index = 0; index < a.length; index += 1) stack.push([a[index], b[index]]);
+      continue;
+    }
+    if (isRecord(a) || isRecord(b)) {
+      if (!isRecord(a) || !isRecord(b)) return false;
+      // JSON drops object properties whose value is undefined, so persisted
+      // deployed units may omit `embarkedIn` while replayed units carry it as
+      // an explicit undefined value.
+      const keys = Object.keys(a).filter(key => a[key] !== undefined);
+      const otherKeys = Object.keys(b).filter(key => b[key] !== undefined);
+      if (keys.length !== otherKeys.length || !keys.every(key => Object.hasOwn(b, key) && b[key] !== undefined)) return false;
+      for (const key of keys) stack.push([a[key], b[key]]);
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 export function isGameCommand(value: unknown): value is GameCommand {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
   if (value.type === 'endTurn') return true;
@@ -150,6 +182,23 @@ export function isGameState(value: unknown): value is GameState {
     && (value.objectiveHoldTurns === undefined || isHoldProgress(value.objectiveHoldTurns));
 }
 
+function validateSavedGameShape(value: unknown): value is SavedGame {
+  return isRecord(value) && value.schemaVersion === SAVE_SCHEMA_VERSION
+    && typeof value.mapId === 'string' && mapIds.has(value.mapId)
+    && ['easy', 'normal', 'hard'].includes(String(value.difficulty))
+    && typeof value.savedAt === 'string' && isGameState(value.initialState) && isGameState(value.gameState)
+    && (value.campaignScenarioId === undefined || value.campaignScenarioId === value.mapId)
+    && Array.isArray(value.commands) && value.commands.length <= 100_000 && value.commands.every(isGameCommand);
+}
+
+function validateSavedGameConsistency(saved: SavedGame): GameResult<SavedGame> {
+  const replayed = replayCommands(saved.initialState, saved.commands);
+  if (!replayed.ok) return { ok: false, error: `セーブデータを再現できません: ${replayed.error}` };
+  if (!sameValue(replayed.value, saved.gameState))
+    return { ok: false, error: 'セーブデータの状態がコマンド履歴と一致しません。' };
+  return { ok: true, value: saved };
+}
+
 export function parseSavedGame(serialized: string): GameResult<SavedGame> {
   if (new TextEncoder().encode(serialized).byteLength > MAX_SAVE_BYTES)
     return { ok: false, error: 'セーブデータが大きすぎます。' };
@@ -158,22 +207,15 @@ export function parseSavedGame(serialized: string): GameResult<SavedGame> {
   catch { return { ok: false, error: 'セーブデータが壊れています。' }; }
   if (!isRecord(value)) return { ok: false, error: 'セーブデータの形式が不正です。' };
   if (value.schemaVersion !== SAVE_SCHEMA_VERSION) return { ok: false, error: '未対応のセーブデータです。' };
-  if (typeof value.mapId !== 'string' || !mapIds.has(value.mapId)
-    || !['easy', 'normal', 'hard'].includes(String(value.difficulty))
-    || typeof value.savedAt !== 'string' || !isGameState(value.initialState) || !isGameState(value.gameState)
-    || (value.campaignScenarioId !== undefined && value.campaignScenarioId !== value.mapId)
-    || !Array.isArray(value.commands) || value.commands.length > 100_000 || !value.commands.every(isGameCommand))
-    return { ok: false, error: 'セーブデータの内容が不正です。' };
-  const saved = value as unknown as SavedGame;
-  const replayed = replayCommands(saved.initialState, saved.commands);
-  if (!replayed.ok) return { ok: false, error: `セーブデータを再現できません: ${replayed.error}` };
-  if (JSON.stringify(replayed.value) !== JSON.stringify(saved.gameState))
-    return { ok: false, error: 'セーブデータの状態がコマンド履歴と一致しません。' };
-  return { ok: true, value: saved };
+  if (!validateSavedGameShape(value)) return { ok: false, error: 'セーブデータの内容が不正です。' };
+  return validateSavedGameConsistency(value);
 }
 
 export function saveGame(storage: StorageLike, key: string, game: Omit<SavedGame, 'schemaVersion' | 'savedAt'>): GameResult<SavedGame> {
   const saved: SavedGame = { schemaVersion: SAVE_SCHEMA_VERSION, ...structuredClone(game), savedAt: new Date().toISOString() };
+  if (!validateSavedGameShape(saved)) return { ok: false, error: 'セーブデータの内容が不正です。' };
+  const validated = validateSavedGameConsistency(saved);
+  if (!validated.ok) return validated;
   const serialized = JSON.stringify(saved);
   if (new TextEncoder().encode(serialized).byteLength > MAX_SAVE_BYTES)
     return { ok: false, error: 'セーブデータが大きすぎます。' };

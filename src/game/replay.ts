@@ -4,6 +4,11 @@ import {
 } from './session';
 import { otherPlayer, type GameResult, type GameState, type PlayerId } from './types';
 
+/**
+ * Schema v1 is additive: `Unit.embarkedIn` is optional, so pre-landing-ship
+ * replays remain valid.  Invalid cargo links are rejected by `isGameState` and
+ * are never inferred or repaired while importing a replay.
+ */
 export const REPLAY_SCHEMA_VERSION = 1 as const;
 export const MAX_REPLAY_BYTES = 1_000_000;
 const MAX_REPLAY_COMMANDS = 100_000;
@@ -95,8 +100,12 @@ function sameValue(left: unknown, right: unknown): boolean {
     }
     if (isRecord(a) || isRecord(b)) {
       if (!isRecord(a) || !isRecord(b)) return false;
-      const keys = Object.keys(a);
-      if (keys.length !== Object.keys(b).length || !keys.every(key => Object.hasOwn(b, key))) return false;
+      // JSON drops object properties whose value is undefined, so persisted
+      // deployed units may omit `embarkedIn` while replayed units carry it as
+      // an explicit undefined value.
+      const keys = Object.keys(a).filter(key => a[key] !== undefined);
+      const otherKeys = Object.keys(b).filter(key => b[key] !== undefined);
+      if (keys.length !== otherKeys.length || !keys.every(key => Object.hasOwn(b, key) && b[key] !== undefined)) return false;
       for (const key of keys) stack.push([a[key], b[key]]);
       continue;
     }
