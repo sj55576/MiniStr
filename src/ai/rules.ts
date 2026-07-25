@@ -47,7 +47,10 @@ function canCapture(state: GameState, unit: DeployedUnit): boolean {
 
 function favorableAttack(state: GameState, attacker: DeployedUnit, target: Unit, config: CpuDifficultyConfig): boolean {
   const result = forecastCombat(state, attacker, target);
-  if (!result.ok) return false;
+  // Hard difficulty accepts more retaliation risk, never an attack that cannot
+  // damage its target. This also keeps the AI safe if future unit matchups have
+  // a zero damage multiplier.
+  if (!result.ok || result.value.defenderDamage <= 0) return false;
   // A certain destruction is always worthwhile. Otherwise difficulty controls accepted risk.
   return result.value.defenderDamage >= target.hp
     || result.value.defenderDamage >= result.value.counterDamage + config.attackSafetyMargin;
