@@ -1,13 +1,13 @@
 import type { Board, Position, Terrain, TerrainKind, UnitKind } from './types';
 
-const land = { infantry: 1, tank: 1, artillery: 1, fighter: 1, bomber: 1, destroyer: Infinity, recon: 1, rocket: 1 } as const;
+const land = { infantry: 1, tank: 1, artillery: 1, fighter: 1, bomber: 1, destroyer: Infinity, landingShip: Infinity, recon: 1, rocket: 1 } as const;
 export const terrainRules: Record<TerrainKind, { movement: Record<UnitKind, number>; defense: number }> = {
   plain: { movement: land, defense: 1 }, forest: { movement: { ...land, tank: 2, artillery: 2, recon: 2, rocket: 2 }, defense: 2 }, road: { movement: land, defense: 0 },
   mountain: { movement: { ...land, infantry: 2, recon: 2, tank: Infinity, artillery: Infinity, rocket: Infinity }, defense: 4 },
-  sea: { movement: { infantry: Infinity, tank: Infinity, artillery: Infinity, recon: Infinity, rocket: Infinity, fighter: 1, bomber: 1, destroyer: 1 }, defense: 0 },
+  sea: { movement: { infantry: Infinity, tank: Infinity, artillery: Infinity, recon: Infinity, rocket: Infinity, fighter: 1, bomber: 1, destroyer: 1, landingShip: 1 }, defense: 0 },
   city: { movement: land, defense: 3 }, factory: { movement: land, defense: 3 },
   // A port is a coastal facility: infantry can capture it and destroyers can dock there.
-  port: { movement: { ...land, destroyer: 1 }, defense: 3 }, capital: { movement: land, defense: 4 },
+  port: { movement: { ...land, destroyer: 1, landingShip: 1 }, defense: 3 }, capital: { movement: land, defense: 4 },
 };
 
 export const positionKey = ({ x, y }: Position): string => `${x},${y}`;
