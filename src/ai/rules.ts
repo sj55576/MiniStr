@@ -2,7 +2,7 @@ import { forecastCombat } from '../game/combat';
 import { reachablePositions } from '../game/commands';
 import { visibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
-import { manhattanDistance, terrainAt } from '../game/terrain';
+import { manhattanDistance, movementCost, terrainAt } from '../game/terrain';
 import { isDeployedUnit, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
 import { unitStats } from '../game/units';
 
@@ -27,6 +27,8 @@ export type CpuAction =
   | { type: 'attack'; unitId: string; targetId: string }
   | { type: 'produce'; factory: Position; kind: UnitKind }
   | { type: 'move'; unitId: string; destination: Position }
+  | { type: 'embark'; unitId: string; transportId: string }
+  | { type: 'disembark'; transportId: string; destination: Position }
   | { type: 'endTurn' };
 
 const propertyKinds = new Set(['city', 'factory', 'port', 'capital']);
@@ -79,7 +81,19 @@ function preferredProduction(state: GameState, player: PlayerId): UnitKind | und
     .sort((a, b) => (weights[b] - counts[b]) - (weights[a] - counts[a]) || unitStats[a].cost - unitStats[b].cost)[0];
 }
 
-function productionAction(state: GameState, player: PlayerId): CpuAction | undefined {
+function productionAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
+  const targets = objectives(state, player, config);
+  const hasRemoteInfantry = orderedUnits(state, player)
+    .filter(unit => unit.kind === 'infantry')
+    .some(unit => targets.some(target => !sameLandComponent(state, unit.position, target)));
+  const hasLandingShip = state.units.some(unit => unit.owner === player && unit.kind === 'landingShip');
+  if (hasRemoteInfantry && !hasLandingShip && state.players[player].gold >= unitStats.landingShip.cost) {
+    for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
+      const port = { x, y };
+      const tile = terrainAt(state.board, port);
+      if (tile?.kind === 'port' && tile.owner === player && !unitAt(state, port)) return { type: 'produce', factory: port, kind: 'landingShip' };
+    }
+  }
   const kind = preferredProduction(state, player);
   if (!kind) return undefined;
   for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
@@ -98,8 +112,87 @@ function objectives(state: GameState, player: PlayerId, config: CpuDifficultyCon
     if (!tile || tile.owner === player || !propertyKinds.has(tile.kind)) continue;
     (tile.kind === 'capital' ? capitals : properties).push({ x, y });
   }
-  const enemies = state.units.filter((unit): unit is DeployedUnit => unit.owner !== player && isDeployedUnit(unit)).map(unit => unit.position);
+  // Enemy formations participate only after reconnaissance has revealed them.
+  const enemies = visibleEnemies(state, player).filter(isDeployedUnit).map(unit => unit.position);
   return config.prioritizeCapital ? [...capitals, ...properties, ...enemies] : [...properties, ...capitals, ...enemies];
+}
+
+const adjacentPositions = (position: Position): Position[] => [
+  { x: position.x + 1, y: position.y }, { x: position.x - 1, y: position.y },
+  { x: position.x, y: position.y + 1 }, { x: position.x, y: position.y - 1 },
+];
+
+function isAdjacent(first: Position, second: Position): boolean {
+  return manhattanDistance(first, second) === 1;
+}
+
+/**
+ * Land components deliberately use infantry movement rules. This lets the CPU distinguish
+ * a remote island from a route it can simply walk, without treating a port as open sea.
+ */
+function sameLandComponent(state: GameState, first: Position, second: Position): boolean {
+  if (!Number.isFinite(movementCost(state.board, first, 'infantry')) || !Number.isFinite(movementCost(state.board, second, 'infantry'))) return false;
+  const pending = [first];
+  const seen = new Set<string>();
+  while (pending.length) {
+    const current = pending.pop()!;
+    const currentKey = `${current.x},${current.y}`;
+    if (seen.has(currentKey)) continue;
+    if (current.x === second.x && current.y === second.y) return true;
+    seen.add(currentKey);
+    for (const next of adjacentPositions(current)) {
+      if (Number.isFinite(movementCost(state.board, next, 'infantry')) && !seen.has(`${next.x},${next.y}`)) pending.push(next);
+    }
+  }
+  return false;
+}
+
+function nearestTarget(position: Position, targets: readonly Position[]): Position | undefined {
+  return [...targets].sort((a, b) => manhattanDistance(position, a) - manhattanDistance(position, b) || a.y - b.y || a.x - b.x)[0];
+}
+
+/** Choose one transport step before ordinary movement so island objectives are never stranded. */
+function transportAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
+  const targets = objectives(state, player, config);
+  if (!targets.length) return undefined;
+  const units = orderedUnits(state, player);
+
+  // An unloaded ship gets priority: landing the cargo is the only way it can capture remote properties.
+  for (const transport of units.filter(unit => unit.kind === 'landingShip' && !unit.hasMoved && !unit.hasActed)) {
+    const cargo = state.units.find(unit => unit.embarkedIn === transport.id);
+    if (!cargo) continue;
+    const destination = adjacentPositions(transport.position)
+      .filter(position => Number.isFinite(movementCost(state.board, position, 'infantry')) && !unitAt(state, position)
+        && targets.some(target => sameLandComponent(state, position, target)))
+      .map(position => ({ position, target: nearestTarget(position, targets) }))
+      .filter((candidate): candidate is { position: Position; target: Position } => candidate.target !== undefined)
+      .sort((a, b) => manhattanDistance(a.position, a.target) - manhattanDistance(b.position, b.target)
+        || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
+    if (destination) return { type: 'disembark', transportId: transport.id, destination };
+  }
+
+  // Board an infantry unit only if an objective lies on a different land component.
+  for (const infantry of units.filter(unit => unit.kind === 'infantry' && !unit.hasActed)) {
+    const remoteObjective = targets.some(target => !sameLandComponent(state, infantry.position, target));
+    if (!remoteObjective) continue;
+    const transport = units.find(candidate => candidate.kind === 'landingShip' && !candidate.hasMoved && !candidate.hasActed
+      && isAdjacent(infantry.position, candidate.position) && !state.units.some(unit => unit.embarkedIn === candidate.id));
+    if (transport) return { type: 'embark', unitId: infantry.id, transportId: transport.id };
+  }
+
+  // Carry cargo toward the closest remote objective. This is finite because it only accepts a strict
+  // Manhattan-distance improvement; otherwise normal actions/end-turn take over.
+  for (const transport of units.filter(unit => unit.kind === 'landingShip' && !unit.hasMoved)) {
+    if (!state.units.some(unit => unit.embarkedIn === transport.id)) continue;
+    const target = nearestTarget(transport.position, targets);
+    if (!target) continue;
+    const currentDistance = manhattanDistance(transport.position, target);
+    const destination = reachablePositions(state, transport.id)
+      .filter(position => manhattanDistance(position, target) < currentDistance)
+      .sort((a, b) => manhattanDistance(a, target) - manhattanDistance(b, target) || a.y - b.y || a.x - b.x)[0];
+    if (destination) return { type: 'move', unitId: transport.id, destination };
+  }
+  return undefined;
 }
 
 function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
@@ -125,7 +218,8 @@ export function chooseCpuAction(state: GameState, difficulty: CpuDifficulty = 'n
   const capture = orderedUnits(state, player).find(unit => canCapture(state, unit));
   if (capture) return { type: 'capture', unitId: capture.id };
   return attackAction(state, player, config)
-    ?? productionAction(state, player)
+    ?? transportAction(state, player, config)
+    ?? productionAction(state, player, config)
     ?? moveAction(state, player, config)
     ?? { type: 'endTurn' };
 }
