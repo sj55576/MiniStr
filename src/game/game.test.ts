@@ -1,7 +1,54 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, disembarkUnit, embarkUnit, endTurn, forecastCombat, isGameCommand, isGameState, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, replayCommands, saveGame, serializeReplay, terrainRules, unitAt, unitStats, type GameCommand, type GameState, type StorageLike } from './index';
+import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, disembarkUnit, embarkUnit, endTurn, forecastCombat, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, replayCommands, saveGame, serializeReplay, terrainRules, unitAt, unitStats, type GameCommand, type GameState, type StorageLike } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
+
+const jsonScenario = () => ({
+  id: 'json-test', name: 'JSONテスト', briefing: 'JSONから安全に読み込む。', startingGold: 0,
+  board: { width: 2, height: 2, cells: [[0, 0, 'capital', 'red'], [1, 1, 'capital', 'blue']] },
+  initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 1 }],
+  victoryConditions: [{ type: 'hold', positions: [{ x: 1, y: 1 }], turns: 2 }],
+  defeatConditions: [{ type: 'eliminate' }],
+});
+
+describe('JSON scenario definitions', () => {
+  it('materializes JSON-compatible data without retaining or mutating its source', () => {
+    const source = jsonScenario();
+    const before = structuredClone(source);
+    const result = loadScenarioDefinitions([source]);
+    expect(result.ok).toBe(true);
+    expect(source).toEqual(before);
+    if (!result.ok) return;
+    source.board.cells[0]![2] = 'sea';
+    expect(result.value[0]!.board.terrain[0]![0]).toMatchObject({ kind: 'capital', owner: 'red', capturePoints: 20 });
+    expect(result.value[0]!.victoryConditions).toEqual([{ type: 'hold', positions: [{ x: 1, y: 1 }], turns: 2 }]);
+  });
+
+  it.each([
+    ['unknown terrain', (data: any) => { data.board.cells[0][2] = 'lava'; }],
+    ['unknown unit', (data: any) => { data.initialUnits[0].kind = 'mech'; }],
+    ['unknown owner', (data: any) => { data.board.cells[0][3] = 'green'; }],
+    ['out-of-bounds unit', (data: any) => { data.initialUnits[0].x = 2; }],
+    ['out-of-bounds hold target', (data: any) => { data.victoryConditions[0].positions[0].x = 2; }],
+    ['nonpositive hold turns', (data: any) => { data.victoryConditions[0].turns = 0; }],
+    ['negative starting gold', (data: any) => { data.startingGold = -1; }],
+    ['duplicate id', (data: any) => { return [data, { ...structuredClone(data) }]; }],
+    ['ragged board shape', (data: any) => { data.board = { width: 2, height: 2, terrain: [[{ kind: 'plain' }]] }; }],
+    ['malformed victory condition', (data: any) => { data.victoryConditions = [{ type: 'score', target: 0 }]; }],
+  ])('rejects %s without exposing it to the game', (_label, corrupt) => {
+    const source = jsonScenario();
+    const candidate = corrupt(source) ?? source;
+    expect(loadScenarioDefinitions(Array.isArray(candidate) ? candidate : [candidate]).ok).toBe(false);
+  });
+
+  it('returns a clear error and unchanged fallback catalog for invalid source', () => {
+    const invalid = jsonScenario();
+    invalid.board.cells[0]![2] = 'unknown';
+    const catalog = createScenarioCatalog([invalid], maps);
+    expect(catalog.scenarios).toBe(maps);
+    expect(catalog.error).toContain('地形セル');
+  });
+});
 
 describe('Phase 2 game rules', () => {
   it('defines terrain movement and defense effects', () => {
