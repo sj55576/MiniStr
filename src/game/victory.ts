@@ -1,5 +1,5 @@
 import { scenarioById, type ScenarioDefinition, type VictoryCondition } from './maps';
-import { otherPlayer, type GameState, type PlayerId, type Position } from './types';
+import { isDeployedUnit, otherPlayer, type GameState, type PlayerId, type Position } from './types';
 
 export interface ConditionProgress { current: number; target: number; complete: boolean }
 
@@ -12,7 +12,7 @@ export function holdConditionKey(condition: Extract<VictoryCondition, { type: 'h
 
 function playerHoldsPositions(state: GameState, player: PlayerId, positions: readonly Position[]): boolean {
   return positions.length > 0 && positions.every(position => state.units.some(unit =>
-    unit.owner === player && unit.position.x === position.x && unit.position.y === position.y));
+    unit.owner === player && isDeployedUnit(unit) && unit.position.x === position.x && unit.position.y === position.y));
 }
 
 export function getConditionProgress(state: GameState, condition: VictoryCondition, player: PlayerId): ConditionProgress {
@@ -20,7 +20,7 @@ export function getConditionProgress(state: GameState, condition: VictoryConditi
   let target: number;
   switch (condition.type) {
     case 'eliminate': {
-      const enemies = state.units.filter(unit => unit.owner === otherPlayer(player)).length;
+      const enemies = state.units.filter(unit => unit.owner === otherPlayer(player) && isDeployedUnit(unit)).length;
       current = enemies === 0 ? 1 : 0;
       target = 1;
       break;
@@ -95,7 +95,7 @@ export function updateScenarioProgress(state: GameState, scenario: ScenarioDefin
 export function updateScenarioScores(previous: GameState, next: GameState): GameState {
   const scores = { red: previous.scores?.red ?? 0, blue: previous.scores?.blue ?? 0 };
   const survivors = new Set(next.units.map(unit => unit.id));
-  for (const lost of previous.units) if (!survivors.has(lost.id)) scores[otherPlayer(lost.owner)] += 1;
+  for (const lost of previous.units) if (isDeployedUnit(lost) && !survivors.has(lost.id)) scores[otherPlayer(lost.owner)] += 1;
   for (let y = 0; y < next.board.height; y += 1) {
     for (let x = 0; x < next.board.width; x += 1) {
       const before = previous.board.terrain[y]?.[x]?.owner;
