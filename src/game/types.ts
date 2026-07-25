@@ -1,5 +1,5 @@
 export type PlayerId = 'red' | 'blue';
-export type UnitKind = 'infantry' | 'tank' | 'artillery' | 'fighter' | 'bomber' | 'destroyer' | 'recon' | 'rocket';
+export type UnitKind = 'infantry' | 'tank' | 'artillery' | 'fighter' | 'bomber' | 'destroyer' | 'landingShip' | 'recon' | 'rocket';
 export type TerrainKind = 'plain' | 'forest' | 'road' | 'mountain' | 'sea' | 'city' | 'factory' | 'port' | 'capital';
 
 export interface Position { x: number; y: number }
@@ -14,12 +14,21 @@ export interface Unit {
   id: string;
   kind: UnitKind;
   owner: PlayerId;
-  position: Position;
+  /** Present only while this unit is deployed on the board. */
+  position?: Position;
+  /** ID of the landing ship carrying this unit. Embarked units have no position. */
+  embarkedIn?: string;
   hp: number;
   fuel?: number;
   ammo?: number;
   hasMoved: boolean;
   hasActed: boolean;
+}
+
+export type DeployedUnit = Unit & { position: Position; embarkedIn?: undefined };
+
+export function isDeployedUnit(unit: Unit): unit is DeployedUnit {
+  return unit.position !== undefined && unit.embarkedIn === undefined;
 }
 
 export interface Board {
