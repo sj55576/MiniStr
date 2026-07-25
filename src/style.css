@@ -155,3 +155,14 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 .unit-owner-marker { position: absolute; z-index: 3; top: -7px; left: -7px; display: grid; width: 15px; height: 15px; place-items: center; color: #fff; font-size: 8px; font-style: normal; font-weight: 800; line-height: 1; border: 1px solid #fff; border-radius: 50%; background: #25342c; text-shadow: none; }.unit.red .unit-owner-marker { border-radius: 2px; background: #8b3028; }.unit.blue .unit-owner-marker { background: #1f5f9d; }
 .legend-dot, .legend-unit, .legend-facility { display: inline-grid; place-items: center; color: #15211c; font-size: 8px; font-style: normal; font-weight: 800; line-height: 1; }.legend-dot, .legend-unit { width: 15px; height: 15px; }.reachable-dot { border-radius: 2px; }.fog-dot { color: #fff; border: 1px solid #a6b6ac; }.red-dot { border-radius: 2px; color: #fff; }.blue-dot { color: #fff; }.legend-facility { color: #15211c; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
+
+/* Phase 6.1: ports are distinct coastal production and supply facilities. */
+.tile.port {
+  background: linear-gradient(145deg, #14516c, #2c8396);
+  box-shadow: inset 0 0 0 1px rgba(191, 238, 245, .38);
+}
+.facility-port {
+  color: #d9fbff;
+  background: rgba(8, 49, 65, .82);
+  border-color: #83d9e8;
+}
