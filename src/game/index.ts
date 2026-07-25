@@ -1,7 +1,7 @@
 export * from './types';
 export * from './state';
 export * from './terrain';
-export * from './units';
+export * from './units';\nexport * from './facilities';
 export * from './rng';
 export * from './commands';
 export * from './combat';
