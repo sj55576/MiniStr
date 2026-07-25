@@ -49,6 +49,7 @@ function start(id: string): GameState {
 
 const key = (p: Position) => `${p.x},${p.y}`;
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]!);
+const adjacent = (first: Position, second: Position) => Math.abs(first.x - second.x) + Math.abs(first.y - second.y) === 1;
 
 function objectiveProgress(condition: VictoryCondition, state: GameState, player: PlayerId): string {
   const progress = getConditionProgress(state, condition, player);
@@ -225,11 +226,12 @@ function render(): void {
     const isProperty = isPropertyTerrainKind(terrain.kind);
     const propertyOwner = isProperty ? terrain.owner : undefined;
     const capturePoints = isProperty ? terrain.capturePoints : undefined;
-    const facilityDetail = terrain.kind === 'port' ? '、補給・駆逐艦を生産可能' : terrain.kind === 'factory' ? '、補給・ユニット生産拠点' : '';
+    const facilityDetail = terrain.kind === 'port' ? '、補給・駆逐艦・輸送艦を生産可能' : terrain.kind === 'factory' ? '、補給・ユニット生産拠点' : '';
     const propertyLabel = isProperty ? `${terrainName}${propertyOwner ? `（${propertyOwner === 'red' ? '自軍' : '敵軍'}）` : '（中立）'}${capturePoints !== undefined ? `、占領値 ${capturePoints}` : ''}${facilityDetail}` : terrainName;
-    const unitLabel = unit && !hidden ? `${unit.owner === 'red' ? 'プレイヤー' : 'CPU'}の${unitNames[unit.kind]}、耐久 ${unit.hp}` : '';
+    const cargo = unit?.kind === 'landingShip' ? renderedGame.units.find(candidate => candidate.embarkedIn === unit.id) : undefined;
+    const unitLabel = unit && !hidden ? `${unit.owner === 'red' ? 'プレイヤー' : 'CPU'}の${unitNames[unit.kind]}、耐久 ${unit.hp}${cargo ? `、搭載 ${unitNames[cargo.kind]}` : ''}` : '';
     const label = unit && !hidden
-      ? `<span class="unit ${unit.owner} unit-${unit.kind}" aria-hidden="true"><b>${unitTokens[unit.kind]}</b><small>${unit.hp}</small><em>${unitNames[unit.kind]}</em><i class="unit-owner-marker">${unit.owner === 'red' ? '自' : '敵'}</i></span>`
+      ? `<span class="unit ${unit.owner} unit-${unit.kind}" aria-hidden="true"><b>${unitTokens[unit.kind]}</b><small>${unit.hp}</small><em>${unitNames[unit.kind]}${cargo ? `・${unitNames[cargo.kind]}搭載` : ''}</em><i class="unit-owner-marker">${unit.owner === 'red' ? '自' : '敵'}</i>${cargo ? '<i class="cargo-marker">積</i>' : ''}</span>`
       : '';
     const facility = isProperty && !hidden
       ? `<span class="facility facility-${terrain.kind} ${propertyOwner ?? 'neutral'}" aria-hidden="true"><b>${terrain.kind === 'city' ? '市' : terrain.kind === 'factory' ? '工' : terrain.kind === 'port' ? '港' : '司'}</b><small>${propertyOwner === 'red' ? '自軍' : propertyOwner === 'blue' ? '敵軍' : '中立'}${capturePoints !== undefined ? ` ${capturePoints}` : ''}</small></span>`
@@ -252,6 +254,23 @@ function render(): void {
   const selectedTerrain = selectedUnit && isDeployedUnit(selectedUnit) ? renderedGame.board.terrain[selectedUnit.position.y]?.[selectedUnit.position.x] : undefined;
   const canCapture = selectedUnit?.owner === renderedGame.activePlayer && selectedUnit.kind === 'infantry' && selectedTerrain && isPropertyTerrainKind(selectedTerrain.kind) && selectedTerrain.owner !== renderedGame.activePlayer;
   const captureAction = !replayMode && canCapture ? `<section class="capture-card"><p class="card-kicker">PROPERTY ACTION</p><strong>${terrainNames[selectedTerrain!.kind]}を占領</strong><span>${selectedTerrain!.owner === 'blue' ? '敵軍' : '中立'}拠点・占領値 ${selectedTerrain!.capturePoints ?? '—'}</span><button class="capture" id="capture" aria-label="この拠点を占領する">占領する</button></section>` : '';
+  const embarkTargets = selectedUnit?.owner === renderedGame.activePlayer && selectedUnit.kind === 'infantry' && isDeployedUnit(selectedUnit) && !selectedUnit.hasActed
+    ? renderedGame.units.filter((unit) => isDeployedUnit(unit) && unit.kind === 'landingShip' && unit.owner === selectedUnit.owner
+      && !unit.hasMoved && !unit.hasActed && adjacent(selectedUnit.position, unit.position)
+      && !renderedGame.units.some(candidate => candidate.embarkedIn === unit.id))
+    : [];
+  const cargo = selectedUnit?.kind === 'landingShip' ? renderedGame.units.find(unit => unit.embarkedIn === selectedUnit.id) : undefined;
+  const landingTargets = selectedUnit?.owner === renderedGame.activePlayer && selectedUnit.kind === 'landingShip' && isDeployedUnit(selectedUnit)
+    && !selectedUnit.hasMoved && !selectedUnit.hasActed && cargo
+    ? [{ x: selectedUnit.position.x + 1, y: selectedUnit.position.y }, { x: selectedUnit.position.x - 1, y: selectedUnit.position.y }, { x: selectedUnit.position.x, y: selectedUnit.position.y + 1 }, { x: selectedUnit.position.x, y: selectedUnit.position.y - 1 }]
+      .filter(position => {
+        const terrain = renderedGame.board.terrain[position.y]?.[position.x];
+        return terrain?.kind !== undefined && terrain.kind !== 'sea' && !renderedGame.units.some(unit => isDeployedUnit(unit) && key(unit.position) === key(position));
+      })
+    : [];
+  const transportAction = !replayMode && (embarkTargets.length || cargo)
+    ? `<section class="transport-card"><p class="card-kicker">LANDING OPERATION</p><strong>${cargo ? `${unitNames[cargo.kind]}を搭載中` : '輸送艦への乗船'}</strong><span>${cargo ? '隣接する陸地を選んで上陸させます。' : '隣接する空の輸送艦を選んで乗船させます。'}</span>${embarkTargets.map(unit => `<button class="transport-action embark" data-transport-id="${unit.id}">${unitNames[unit.kind]}に乗船</button>`).join('')}${landingTargets.map(position => `<button class="transport-action disembark" data-x="${position.x}" data-y="${position.y}">(${position.x + 1}, ${position.y + 1}) に上陸</button>`).join('')}${cargo && landingTargets.length === 0 ? '<em class="transport-note">上陸できる隣接陸地がありません。</em>' : ''}</section>`
+    : '';
   const forecasts = !replayMode && selectedUnit && selectedUnit.owner === renderedGame.activePlayer
     ? visibleEnemies(renderedGame, selectedUnit.owner).map(enemy => ({ enemy, forecast: forecastCombat(renderedGame, selectedUnit, enemy) })).filter((item): item is { enemy: typeof item.enemy; forecast: Extract<typeof item.forecast, { ok: true }> } => item.forecast.ok)
     : [];
@@ -283,7 +302,7 @@ function render(): void {
     <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択" ${replayMode || campaignRun ? 'disabled' : ''}>${maps.map(map => `<option value="${map.id}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択" ${replayMode ? 'disabled' : ''}>${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === renderedDifficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="save-controls"><button id="open-campaign" class="save-action" ${replayMode ? 'disabled' : ''}>キャンペーン</button><button id="continue" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>続きから</button><button id="save" class="save-action" ${replayMode ? 'disabled' : ''}>手動セーブ</button><button id="delete-save" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>対局セーブ削除</button><button id="undo" class="save-action" ${!replayMode && renderedGame.activePlayer === 'red' && undoStack.length > 0 ? '' : 'disabled'}>1手戻す</button><button id="import-replay" class="save-action" ${replayMode ? 'disabled' : ''}>JSON取込</button><input id="replay-file" class="visually-hidden" type="file" accept=".json,application/json" aria-label="JSONリプレイファイルを選択"></div><div class="turn-indicator ${renderedGame.activePlayer}"><span>${replayMode ? 'REPLAY' : campaignRun ? 'CAMPAIGN' : 'TURN'}</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する" ${replayMode ? 'disabled' : ''}>ターン終了 <span aria-hidden="true">→</span></button></header>
     ${replay ? `<section class="replay-toolbar" aria-label="リプレイ再生コントロール"><div><p class="card-kicker">REPLAY</p><strong aria-live="polite">${replay.index} / ${replay.file.commands.length} 手</strong></div><button id="replay-toggle" class="end-turn" aria-label="${replay.playing ? 'リプレイを一時停止' : replay.index >= replay.file.commands.length ? 'リプレイを最初から再生' : 'リプレイを再生'}" ${replay.file.commands.length === 0 ? 'disabled' : ''}>${replay.playing ? '一時停止' : replay.index >= replay.file.commands.length ? 'もう一度再生' : '再生'}</button><button id="replay-step" class="save-action" ${replay.playing || replay.index >= replay.file.commands.length ? 'disabled' : ''}>1手送り</button><label class="replay-speed">速度<select id="replay-speed" aria-label="リプレイ再生速度">${([0.5, 1, 2, 4] as const).map(speed => `<option value="${speed}" ${speed === replay!.speed ? 'selected' : ''}>${speed}x</option>`).join('')}</select></label><button id="replay-exit" class="save-action">リプレイを終了</button></section>` : ''}
     <section class="battle-layout"><div class="battlefield-wrap ${mapTheme}"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(renderedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><p id="board-instructions" class="board-instructions">盤面では矢印キーでマスを移動し、Enter または Space で選択・行動、Esc で選択を解除できます。</p><div class="board" role="group" aria-label="${escapeHtml(renderedMap.name)}の戦術マップ" aria-describedby="board-instructions" style="grid-template-columns:repeat(${renderedGame.board.width},1fr)">${board}</div><div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot" aria-hidden="true">移</i>移動可能</span><span><i class="legend-dot fog-dot" aria-hidden="true">?</i>未索敵</span><span><i class="legend-unit red-dot" aria-hidden="true">自</i>自軍</span><span><i class="legend-unit blue-dot" aria-hidden="true">敵</i>敵軍</span><span><i class="legend-facility" aria-hidden="true">拠</i>拠点（市・工・港・司）</span></div></div>
-    <aside class="command-panel" aria-label="作戦情報">${objectivePanel}<section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(renderedGame, renderedGame.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、港湾、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給して補給を行い、駆逐艦は港湾でのみ生産できます。</p></aside>
+    <aside class="command-panel" aria-label="作戦情報">${objectivePanel}<section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${transportAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(renderedGame, renderedGame.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、港湾、司令部で<strong>占領</strong>できます。輸送艦は歩兵を1部隊搭載し、別の島へ上陸させられます。</p></aside>
   </section></main>${gameOverOverlay}${briefing}${campaignOverlay}`;
   if (briefing || campaignOverlay) {
     app.querySelector('main')?.setAttribute('inert', '');
@@ -321,6 +340,18 @@ function render(): void {
       if (dispatch({ type: 'capture', unitId: selected }, true)) message = '拠点の占領を進めました。';
       render();
     }));
+    app.querySelectorAll<HTMLButtonElement>('.embark').forEach(button => button.addEventListener('click', guardNormal(() => {
+      if (selected && dispatch({ type: 'embark', unitId: selected, transportId: button.dataset.transportId! }, true)) {
+        message = '歩兵が輸送艦に乗船しました。次のターンから航行できます。'; selected = undefined;
+      }
+      render();
+    })));
+    app.querySelectorAll<HTMLButtonElement>('.disembark').forEach(button => button.addEventListener('click', guardNormal(() => {
+      if (selected && dispatch({ type: 'disembark', transportId: selected, destination: { x: Number(button.dataset.x), y: Number(button.dataset.y) } }, true)) {
+        message = '歩兵を上陸させました。'; selected = undefined;
+      }
+      render();
+    })));
   }
   document.querySelector<HTMLButtonElement>('#restart')?.addEventListener('click', guardNormal(() => {
     resetGame(selectedMap.id); message = 'ユニットを選択して行動してください。'; render();
