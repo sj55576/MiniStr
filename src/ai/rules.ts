@@ -29,7 +29,7 @@ export type CpuAction =
   | { type: 'move'; unitId: string; destination: Position }
   | { type: 'endTurn' };
 
-const propertyKinds = new Set(['city', 'factory', 'capital']);
+const propertyKinds = new Set(['city', 'factory', 'port', 'capital']);
 type StandardProductionKind = Extract<UnitKind, 'infantry' | 'tank' | 'artillery'>;
 const standardProductionKinds: readonly StandardProductionKind[] = ['infantry', 'tank', 'artillery'];
 
