@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, disembarkUnit, embarkUnit, endTurn, forecastCombat, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, replayCommands, saveGame, serializeReplay, terrainRules, unitAt, unitStats, type GameCommand, type GameState, type StorageLike } from './index';
+import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, disembarkUnit, embarkUnit, endTurn, forecastCombat, getConditionProgress, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, reachablePositionsForPlayer, replayCommands, saveGame, serializeReplay, terrainRules, unitAt, unitStats, type GameCommand, type GameState, type StorageLike } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -65,12 +65,51 @@ describe('Phase 2 game rules', () => {
     expect(state.units[0]?.position).toEqual({ x: 0, y: 0 });
   });
 
-  it('collects income from every owned property including a capital', () => {
+  it('collects income for the active player from every owned property including a capital', () => {
     const board = createBoard(3, 1);
     board.terrain[0]![0] = { kind: 'city', owner: 'red' };
     board.terrain[0]![1] = { kind: 'factory', owner: 'red' };
     board.terrain[0]![2] = { kind: 'capital', owner: 'red' };
     expect(collectIncome(createGameState(board)).players.red).toEqual({ gold: 3000, income: 3000 });
+  });
+
+  it('credits income only to the player whose turn has just begun', () => {
+    const board = createBoard(2, 1);
+    board.terrain[0]![0] = { kind: 'city', owner: 'red' };
+    board.terrain[0]![1] = { kind: 'factory', owner: 'blue' };
+    const state = stateWith(createGameState(board), {
+      activePlayer: 'red',
+      players: { red: { gold: 100, income: 0 }, blue: { gold: 200, income: 0 } },
+    });
+
+    const afterRedIncome = collectIncome(state);
+    expect(afterRedIncome.players).toEqual({ red: { gold: 1100, income: 1000 }, blue: { gold: 200, income: 0 } });
+
+    const afterBlueIncome = collectIncome({ ...afterRedIncome, activePlayer: 'blue' });
+    expect(afterBlueIncome.players).toEqual({ red: { gold: 1100, income: 1000 }, blue: { gold: 1200, income: 1000 } });
+  });
+
+  it('starts the next player turn with only that player receiving property income', () => {
+    const board = createBoard(2, 1);
+    board.terrain[0]![0] = { kind: 'city', owner: 'red' };
+    board.terrain[0]![1] = { kind: 'factory', owner: 'blue' };
+    const state = stateWith(createGameState(board), {
+      players: { red: { gold: 100, income: 0 }, blue: { gold: 200, income: 0 } },
+    });
+
+    expect(endTurn(state)).toMatchObject({
+      activePlayer: 'blue',
+      players: { red: { gold: 100, income: 0 }, blue: { gold: 1200, income: 1000 } },
+    });
+  });
+
+  it('counts turns as full rounds and advances the counter only when blue ends', () => {
+    const state = createGameState(createBoard(1, 1));
+    const blueTurn = endTurn(state);
+    expect(blueTurn).toMatchObject({ activePlayer: 'blue', turn: 1 });
+
+    const nextRedTurn = endTurn(blueTurn);
+    expect(nextRedTurn).toMatchObject({ activePlayer: 'red', turn: 2 });
   });
 
   it('produces a unit at an owned unoccupied factory', () => {
@@ -99,6 +138,52 @@ describe('Phase 2 game rules', () => {
       { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
       { id: 'd', kind: 'artillery', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
     expect(result.ok && result.value).toMatchObject({ defenderDamage: 74, counterDamage: 0, canCounter: false });
+  });
+
+  it('prevents movement after attacking while preserving move-then-attack', () => {
+    const actionFirst = createGameState(createBoard(2, 2));
+    actionFirst.units = [
+      { id: 'attacker', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+      { id: 'defender', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+    ];
+    const attackedFirst = attackUnit(actionFirst, 'attacker', 'defender');
+    expect(attackedFirst.ok).toBe(true);
+    if (!attackedFirst.ok) return;
+    expect(moveUnit(attackedFirst.value, 'attacker', { x: 0, y: 1 })).toEqual({ ok: false, error: 'Unit has already acted' });
+
+    const state = createGameState(createBoard(3, 1));
+    state.units = [
+      { id: 'attacker', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+      { id: 'defender', kind: 'tank', owner: 'blue', position: { x: 2, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+    ];
+
+    const moved = moveUnit(state, 'attacker', { x: 1, y: 0 });
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) return;
+    const attacked = attackUnit(moved.value, 'attacker', 'defender');
+    expect(attacked.ok).toBe(true);
+  });
+
+  it('prevents movement after capturing while preserving move-then-capture', () => {
+    const actionFirstBoard = createBoard(2, 1);
+    actionFirstBoard.terrain[0]![0] = { kind: 'city', owner: 'blue', capturePoints: 20 };
+    const actionFirst = createGameState(actionFirstBoard);
+    actionFirst.units = [{ id: 'infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false }];
+    const capturedFirst = captureProperty(actionFirst, 'infantry');
+    expect(capturedFirst.ok).toBe(true);
+    if (!capturedFirst.ok) return;
+    expect(moveUnit(capturedFirst.value, 'infantry', { x: 1, y: 0 })).toEqual({ ok: false, error: 'Unit has already acted' });
+
+    const board = createBoard(2, 1);
+    board.terrain[0]![1] = { kind: 'city', owner: 'blue', capturePoints: 20 };
+    const state = createGameState(board);
+    state.units = [{ id: 'infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false }];
+
+    const moved = moveUnit(state, 'infantry', { x: 1, y: 0 });
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) return;
+    const captured = captureProperty(moved.value, 'infantry');
+    expect(captured.ok).toBe(true);
   });
 
   it('uses deterministic random state', () => {
@@ -166,6 +251,16 @@ describe('Resupply on end turn', () => {
 });
 
 describe('Weighted movement, fuel, and capture recovery', () => {
+  it('does not expose a hidden enemy through the player movement preview', () => {
+    const state = createGameState(createBoard(8, 1));
+    state.units = [
+      { id: 'scout', kind: 'recon', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'hidden', kind: 'infantry', owner: 'blue', position: { x: 6, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    const withoutEnemy = { ...state, units: [state.units[0]!] };
+    expect(reachablePositionsForPlayer(state, 'scout', 'red')).toEqual(reachablePositionsForPlayer(withoutEnemy, 'scout', 'red'));
+    expect(reachablePositions(state, 'scout')).not.toEqual(reachablePositions(withoutEnemy, 'scout'));
+  });
   it('charges the terrain-weighted path cost, treating forest as two movement points', () => {
     const board = createBoard(3, 1);
     board.terrain[0]![1] = { kind: 'forest' };
@@ -201,7 +296,7 @@ describe('Weighted movement, fuel, and capture recovery', () => {
     state.units = [{ id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 99, ammo: 9, hasMoved: false, hasActed: false }];
     const captured = captureProperty(state, 'i');
     expect(captured.ok && captured.value.board.terrain[0]![0]!.capturePoints).toBe(10);
-    const readied = captured.ok ? stateWith(captured.value, { units: [{ ...captured.value.units[0]!, hasMoved: false }] }) : state;
+    const readied = captured.ok ? stateWith(captured.value, { units: [{ ...captured.value.units[0]!, hasMoved: false, hasActed: false }] }) : state;
     const moved = moveUnit(readied, 'i', { x: 1, y: 0 });
     expect(moved.ok && moved.value.board.terrain[0]![0]!.capturePoints).toBe(20);
     expect(moved.ok && moved.value.board.terrain[0]![0]!.owner).toBe('blue');
@@ -210,6 +305,22 @@ describe('Weighted movement, fuel, and capture recovery', () => {
 
 
 describe('Fog of war and combat ammunition', () => {
+  it('rejects a combat forecast when the attacker has no ammunition', () => {
+    const state = createGameState(createBoard(2, 1));
+    const result = forecastCombat(state,
+      { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 0, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
+    expect(result).toEqual({ ok: false, error: 'Unit is out of ammunition' });
+  });
+
+  it('rejects a combat forecast for a unit with no attack capability', () => {
+    const state = createGameState(createBoard(2, 1, { kind: 'sea' }));
+    const result = forecastCombat(state,
+      { id: 'a', kind: 'landingShip', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 1, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'destroyer', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
+    expect(result).toEqual({ ok: false, error: 'Unit has no attack capability' });
+  });
+
   it('rejects an attack against an enemy outside the attacker owner\'s vision', () => {
     const state = createGameState(createBoard(5, 1));
     state.units = [
@@ -251,6 +362,29 @@ describe('Fog of war and combat ammunition', () => {
     const result = attackUnit(state, 'a', 'd');
     expect(result.ok && result.value.units.find(unit => unit.id === 'a')?.hp).toBe(100);
     expect(result.ok && result.value.units.find(unit => unit.id === 'd')?.ammo).toBe(0);
+  });
+});
+
+describe('Capital capture objectives', () => {
+  it('does not complete a known scenario objective after capturing a neutral capital', () => {
+    const scenario = maps.find(map => map.id === 'siege')!;
+    const state = stateWith(createGameState(structuredClone(scenario.board)), { scenarioId: scenario.id });
+    state.board.terrain[4]![6]!.owner = 'red';
+    expect(getConditionProgress(state, { type: 'captureCapital' }, 'red')).toEqual({ current: 0, target: 1, complete: false });
+  });
+
+  it('completes a known scenario objective after capturing its initially enemy-owned capital', () => {
+    const scenario = maps.find(map => map.id === 'siege')!;
+    const state = stateWith(createGameState(structuredClone(scenario.board)), { scenarioId: scenario.id });
+    state.board.terrain[9]![13]!.owner = 'red';
+    expect(getConditionProgress(state, { type: 'captureCapital' }, 'red')).toEqual({ current: 1, target: 1, complete: true });
+  });
+
+  it('keeps the legacy board-only fallback when the scenario is unavailable', () => {
+    const state = stateWith(createGameState(createBoard(2, 1)), { scenarioId: 'removed-scenario' });
+    state.board.terrain[0]![0] = { kind: 'capital', owner: 'red' };
+    state.board.terrain[0]![1] = { kind: 'capital', owner: 'red' };
+    expect(getConditionProgress(state, { type: 'captureCapital' }, 'red')).toEqual({ current: 1, target: 1, complete: true });
   });
 });
 
