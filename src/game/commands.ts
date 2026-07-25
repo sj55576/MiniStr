@@ -1,7 +1,7 @@
 import { movementCost, positionKey, samePosition, terrainAt } from './terrain';
 import { playerOwnedProperties, unitAt } from './state';
 import { unitStats } from './units';
-import { forecastCombat } from './combat';
+import { forecastCombat } from './combat';\nimport { canProduceUnit, isPropertyTerrainKind } from './facilities';
 import { visibleEnemies } from './fog';
 import { scenarioById } from './maps';
 import { updateScenarioProgress, updateScenarioScores, withEvaluatedWinner } from './victory';
@@ -73,7 +73,7 @@ export function reachablePositions(state: GameState, unitId: string): Position[]
 /** When a unit leaves a property it was partway through capturing, the property recovers to full. */
 function releaseCaptureProgress(board: GameState['board'], unit: GameState['units'][number]) {
   const tile = terrainAt(board, unit.position);
-  if (!tile || tile.owner === unit.owner || tile.capturePoints === undefined || tile.capturePoints >= 20) return board;
+  if (!tile || !isPropertyTerrainKind(tile.kind) || tile.owner === unit.owner || tile.capturePoints === undefined || tile.capturePoints >= 20) return board;
   return { ...board, terrain: board.terrain.map((row, y) => row.map((cell, x) => samePosition({ x, y }, unit.position) ? { ...cell, capturePoints: 20 } : cell)) };
 }
 
@@ -86,17 +86,18 @@ export function collectIncome(state: GameState): GameState {
   return { ...state, players };
 }
 
-export function produceUnit(state: GameState, factory: Position, kind: UnitKind): GameResult {
+export function produceUnit(state: GameState, facility: Position, kind: UnitKind): GameResult {
   if (state.winner) return fail('Game has finished');
-  const terrain = terrainAt(state.board, factory);
-  if (!terrain || terrain.kind !== 'factory' || terrain.owner !== state.activePlayer) return fail('An owned factory is required');
-  if (unitAt(state, factory)) return fail('Factory is occupied');
+  const terrain = terrainAt(state.board, facility);
+  if (!terrain || terrain.owner !== state.activePlayer || !canProduceUnit(terrain.kind, kind))
+    return fail('An owned compatible production facility is required');
+  if (unitAt(state, facility)) return fail('Production facility is occupied');
   const stats = unitStats[kind];
   if (state.players[state.activePlayer].gold < stats.cost) return fail('Insufficient funds');
   const id = `u${state.nextUnitId}`;
   return succeed({ ...state, nextUnitId: state.nextUnitId + 1,
     players: { ...state.players, [state.activePlayer]: { ...state.players[state.activePlayer], gold: state.players[state.activePlayer].gold - stats.cost } },
-    units: [...state.units, { id, kind, owner: state.activePlayer, position: { ...factory }, hp: 100, fuel: stats.fuel, ammo: stats.ammo, hasMoved: true, hasActed: true }],
+    units: [...state.units, { id, kind, owner: state.activePlayer, position: { ...facility }, hp: 100, fuel: stats.fuel, ammo: stats.ammo, hasMoved: true, hasActed: true }],
   });
 }
 
@@ -106,7 +107,7 @@ export function captureProperty(state: GameState, unitId: string): GameResult {
   if (!unit || unit.owner !== state.activePlayer) return fail('An active player unit is required');
   if (unit.hasActed) return fail('Unit has already acted');
   const terrain = terrainAt(state.board, unit.position);
-  if (!terrain || !['city', 'factory', 'capital'].includes(terrain.kind) || terrain.owner === unit.owner) return fail('No enemy property to capture');
+  if (!terrain || !isPropertyTerrainKind(terrain.kind) || terrain.owner === unit.owner) return fail('No enemy property to capture');
   const power = unitStats[unit.kind].capturePower * unit.hp / 100;
   if (!power) return fail('Unit cannot capture');
   const remaining = (terrain.capturePoints ?? 20) - power;
@@ -142,7 +143,7 @@ export function endTurn(state: GameState): GameState {
   const refreshed = progressed.units.map(unit => {
     if (unit.owner !== activePlayer) return unit;
     const terrain = terrainAt(state.board, unit.position);
-    const onOwnedProperty = !!terrain && ['city', 'factory', 'capital'].includes(terrain.kind) && terrain.owner === activePlayer;
+    const onOwnedProperty = !!terrain && isPropertyTerrainKind(terrain.kind) && terrain.owner === activePlayer;
     if (!onOwnedProperty) return { ...unit, hasMoved: false, hasActed: false };
     const stats = unitStats[unit.kind];
     return { ...unit, hasMoved: false, hasActed: false, fuel: stats.fuel, ammo: stats.ammo, hp: Math.min(100, unit.hp + 20) };
