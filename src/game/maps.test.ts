@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { maps, unitStats } from './index';
 
 describe('expanded map roster', () => {
-  it('offers four distinct scenarios with map-owned starting forces', () => {
-    expect(maps.map(map => map.id)).toEqual(['skirmish', 'islands', 'canyon', 'siege']);
+  it('offers five distinct scenarios with map-owned starting forces', () => {
+    expect(maps.map(map => map.id)).toEqual(['skirmish', 'islands', 'landing', 'canyon', 'siege']);
     for (const map of maps) {
       expect(map.initialUnits.some(unit => unit.owner === 'red')).toBe(true);
       expect(map.initialUnits.some(unit => unit.owner === 'blue')).toBe(true);
