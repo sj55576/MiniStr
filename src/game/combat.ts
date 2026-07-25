@@ -1,7 +1,7 @@
 import { defenseStars, manhattanDistance, terrainAt } from './terrain';
 import { unitCategory, unitStats } from './units';
 import type { UnitCategory } from './units';
-import type { GameResult, GameState, Unit, UnitKind } from './types';
+import { isDeployedUnit, type GameResult, type GameState, type Unit, type UnitKind } from './types';
 
 export const damageMultiplier: Record<UnitKind, Record<UnitCategory, number>> = {
   infantry: { soft: 1.0, armor: 0.5, air: 0.35, sea: 0.3 },
@@ -12,6 +12,7 @@ export const damageMultiplier: Record<UnitKind, Record<UnitCategory, number>> = 
   fighter: { soft: 0.5, armor: 0.4, air: 1.4, sea: 0.5 },
   bomber: { soft: 1.25, armor: 1.25, air: 0.4, sea: 1.25 },
   destroyer: { soft: 0.7, armor: 0.7, air: 1.1, sea: 1.0 },
+  landingShip: { soft: 0, armor: 0, air: 0, sea: 0 },
 };
 
 export interface CombatForecast {
@@ -27,6 +28,7 @@ export interface CombatForecast {
 }
 
 export function forecastCombat(state: GameState, attacker: Unit, defender: Unit): GameResult<CombatForecast> {
+  if (!isDeployedUnit(attacker) || !isDeployedUnit(defender)) return { ok: false, error: 'Embarked units cannot fight' };
   if (attacker.owner === defender.owner) return { ok: false, error: 'Cannot attack a friendly unit' };
   const distance = manhattanDistance(attacker.position, defender.position);
   const attackRange = unitStats[attacker.kind].range;
