@@ -1,7 +1,8 @@
 import { movementCost, positionKey, samePosition, terrainAt } from './terrain';
 import { playerOwnedProperties, unitAt } from './state';
 import { unitStats } from './units';
-import { forecastCombat } from './combat';\nimport { canProduceUnit, isPropertyTerrainKind } from './facilities';
+import { forecastCombat } from './combat';
+import { canProduceUnit, isPropertyTerrainKind } from './facilities';
 import { visibleEnemies } from './fog';
 import { scenarioById } from './maps';
 import { updateScenarioProgress, updateScenarioScores, withEvaluatedWinner } from './victory';
