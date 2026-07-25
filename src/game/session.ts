@@ -59,7 +59,7 @@ const isFiniteNumber = (value: unknown): value is number =>
 const isPosition = (value: unknown): value is Position =>
   isRecord(value) && Number.isInteger(value.x) && Number.isInteger(value.y);
 const unitKinds = new Set<UnitKind>(['infantry', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'recon', 'rocket']);
-const terrainKinds = new Set(['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'capital']);
+const terrainKinds = new Set(['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'port', 'capital']);
 const players = new Set(['red', 'blue']);
 const mapIds = new Set(maps.map(map => map.id));
 
