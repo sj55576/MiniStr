@@ -48,12 +48,14 @@ describe('data-driven victory conditions', () => {
     expect(isVictoryConditionMet(state, condition, 'red')).toBe(true);
   });
 
-  it('recognizes either a neutral or enemy capital captured beyond scenario deployment', () => {
+  it('does not treat a neutral capital captured beyond scenario deployment as victory', () => {
     const condition: VictoryCondition = { type: 'captureCapital' };
     const siege = maps.find(map => map.id === 'siege')!;
     const state = { ...createGameState(structuredClone(siege.board)), scenarioId: siege.id };
     expect(isVictoryConditionMet(state, condition, 'red')).toBe(false);
     state.board.terrain[4]![6] = { kind: 'capital', owner: 'red', capturePoints: 20 };
+    expect(isVictoryConditionMet(state, condition, 'red')).toBe(false);
+    state.board.terrain[9]![13] = { kind: 'capital', owner: 'red', capturePoints: 20 };
     expect(isVictoryConditionMet(state, condition, 'red')).toBe(true);
   });
 
