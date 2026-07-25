@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attackUnit, captureProperty, collectIncome, createBoard, createGameState, endTurn, forecastCombat, movementCosts, moveUnit, nextRandom, produceUnit, reachablePositions, terrainRules, unitStats, isGameState, type GameState } from './index';
+import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, disembarkUnit, embarkUnit, endTurn, forecastCombat, isGameCommand, isGameState, movementCosts, moveUnit, nextRandom, produceUnit, reachablePositions, replayCommands, terrainRules, unitAt, unitStats, type GameState } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -245,5 +245,105 @@ describe('Phase 6.1 ports and naval production', () => {
 
   it('accepts port terrain in serialized game state validation', () => {
     expect(isGameState(createGameState(createBoard(1, 1, { kind: 'port', owner: 'red' })))).toBe(true);
+  });
+});
+
+describe('Phase 6.2 landing ships and embarked infantry', () => {
+  const transportState = (): GameState => {
+    const board = createBoard(4, 1, { kind: 'sea' });
+    board.terrain[0]![0] = { kind: 'plain' };
+    board.terrain[0]![3] = { kind: 'plain' };
+    const state = createGameState(board);
+    state.units = [
+      { id: 'infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'ship', kind: 'landingShip', owner: 'red', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    return state;
+  };
+
+  it('embarks moved infantry without allowing a same-turn crossing, then lands it on a later turn', () => {
+    const state = transportState();
+    state.units[0]!.hasMoved = true; // Infantry may move onto a coast before embarking.
+    const boarded = embarkUnit(state, 'infantry', 'ship');
+    expect(boarded.ok).toBe(true);
+    if (!boarded.ok) return;
+    const cargo = boarded.value.units.find(unit => unit.id === 'infantry')!;
+    expect(cargo).toMatchObject({ embarkedIn: 'ship', hasMoved: true, hasActed: true });
+    expect(cargo.position).toBeUndefined();
+    expect(unitAt(boarded.value, { x: 0, y: 0 })).toBeUndefined();
+    expect(reachablePositions(boarded.value, 'infantry')).toEqual([]);
+
+    const readyToSail = endTurn(endTurn(boarded.value));
+    const sailed = moveUnit(readyToSail, 'ship', { x: 2, y: 0 });
+    expect(sailed.ok).toBe(true);
+    if (!sailed.ok) return;
+    expect(disembarkUnit(sailed.value, 'ship', { x: 3, y: 0 })).toEqual({ ok: false, error: 'Transport has already acted' });
+
+    const readyToLand = endTurn(endTurn(sailed.value));
+    const landed = disembarkUnit(readyToLand, 'ship', { x: 3, y: 0 });
+    expect(landed.ok && landed.value.units.find(unit => unit.id === 'infantry')).toMatchObject({ position: { x: 3, y: 0 }, hasMoved: true, hasActed: true });
+    expect(landed.ok && landed.value.units.find(unit => unit.id === 'ship')).toMatchObject({ hasMoved: true, hasActed: true });
+  });
+
+  it('records serializable embark and disembark commands deterministically', () => {
+    const initial = transportState();
+    const commands = [
+      { type: 'embark' as const, unitId: 'infantry', transportId: 'ship' },
+      { type: 'endTurn' as const }, { type: 'endTurn' as const },
+      { type: 'move' as const, unitId: 'ship', destination: { x: 2, y: 0 } },
+      { type: 'endTurn' as const }, { type: 'endTurn' as const },
+      { type: 'disembark' as const, transportId: 'ship', destination: { x: 3, y: 0 } },
+    ];
+    expect(commands.every(isGameCommand)).toBe(true);
+    const replayed = replayCommands(initial, commands);
+    const direct = commands.reduce((state, command) => state.ok ? applyGameCommand(state.value, command) : state, { ok: true, value: initial } as ReturnType<typeof applyGameCommand>);
+    expect(replayed).toEqual(direct);
+    expect(replayed.ok && replayed.value.units.find(unit => unit.id === 'infantry')?.position).toEqual({ x: 3, y: 0 });
+  });
+
+  it('rejects malformed cargo state, including duplicate, enemy, or missing transports', () => {
+    const valid = transportState();
+    valid.units[0] = { ...valid.units[0]!, position: undefined, embarkedIn: 'ship' };
+    expect(isGameState(valid)).toBe(true);
+
+    const missing = structuredClone(valid);
+    missing.units[0]!.embarkedIn = 'missing';
+    expect(isGameState(missing)).toBe(false);
+
+    const duplicate = structuredClone(valid);
+    duplicate.units.push({ id: 'infantry-2', kind: 'infantry', owner: 'red', embarkedIn: 'ship', hp: 100, hasMoved: false, hasActed: false });
+    expect(isGameState(duplicate)).toBe(false);
+
+    const enemy = structuredClone(valid);
+    enemy.units[0]!.owner = 'blue';
+    expect(isGameState(enemy)).toBe(false);
+  });
+
+  it('rejects non-adjacent boarding and landing onto sea', () => {
+    const distant = transportState();
+    distant.units[1] = { ...distant.units[1]!, position: { x: 2, y: 0 } };
+    expect(embarkUnit(distant, 'infantry', 'ship')).toEqual({ ok: false, error: 'Infantry must embark from an adjacent coast' });
+
+    const cargoAtSea = transportState();
+    cargoAtSea.units[0] = { ...cargoAtSea.units[0]!, position: undefined, embarkedIn: 'ship' };
+    expect(disembarkUnit(cargoAtSea, 'ship', { x: 2, y: 0 })).toEqual({ ok: false, error: 'Destination must be an adjacent vacant land tile' });
+  });
+
+  it('removes embarked cargo when its landing ship is destroyed', () => {
+    const state = createGameState(createBoard(2, 1, { kind: 'sea' }));
+    state.units = [
+      { id: 'bomber', kind: 'bomber', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'ship', kind: 'landingShip', owner: 'blue', position: { x: 1, y: 0 }, hp: 1, hasMoved: false, hasActed: false },
+      { id: 'cargo', kind: 'infantry', owner: 'blue', embarkedIn: 'ship', hp: 100, hasMoved: false, hasActed: false },
+    ];
+    const result = attackUnit(state, 'bomber', 'ship');
+    expect(result.ok && result.value.units.map(unit => unit.id)).toEqual(['bomber']);
+  });
+
+  it('produces landing ships only at ports', () => {
+    const port = stateWith(createGameState(createBoard(1, 1, { kind: 'port', owner: 'red' })), { players: { red: { gold: 10_000, income: 0 }, blue: { gold: 0, income: 0 } } });
+    expect(produceUnit(port, { x: 0, y: 0 }, 'landingShip').ok).toBe(true);
+    const factory = stateWith(createGameState(createBoard(1, 1, { kind: 'factory', owner: 'red' })), { players: { red: { gold: 10_000, income: 0 }, blue: { gold: 0, income: 0 } } });
+    expect(produceUnit(factory, { x: 0, y: 0 }, 'landingShip')).toEqual({ ok: false, error: 'An owned compatible production facility is required' });
   });
 });
