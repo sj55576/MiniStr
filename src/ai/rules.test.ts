@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameCommand, createBoard, createGameState, endTurn, maps, reachablePositions, type GameState } from '../game';
-import { chooseCpuAction } from './rules';
+import { applyGameCommand, createBoard, createGameState, endTurn, maps, reachablePositions, type DeployedUnit, type GameState } from '../game';
+import { chooseCpuAction, evaluateCpuPosition } from './rules';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -67,6 +67,46 @@ describe('CPU fog-of-war attacks', () => {
       { id: 'target', kind: 'tank', owner: 'blue', position: { x: 4, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
     ] });
     expect(chooseCpuAction(state)).toEqual({ type: 'attack', unitId: 'rocket', targetId: 'target' });
+  });
+});
+
+describe('CPU positional evaluation and production', () => {
+  it('values defensive terrain and an owned facility for a low-supply unit', () => {
+    const board = createBoard(4, 1);
+    board.terrain[0]![1] = { kind: 'forest' };
+    board.terrain[0]![3] = { kind: 'factory', owner: 'red', capturePoints: 20 };
+    const state = stateWith(createGameState(board), { units: [
+      { id: 'tank', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 2, ammo: 1, hasMoved: false, hasActed: false },
+    ] });
+    const tank = state.units[0]! as DeployedUnit;
+    expect(evaluateCpuPosition(state, 'red', tank, { x: 1, y: 0 }, [{ x: 3, y: 0 }])).toBeGreaterThan(0);
+    expect(evaluateCpuPosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 3, y: 0 }])).toBeGreaterThan(evaluateCpuPosition(state, 'red', tank, { x: 1, y: 0 }, [{ x: 3, y: 0 }]));
+  });
+
+  it('produces a fighter for a confirmed air threat and a destroyer on a naval map', () => {
+    const airBoard = createBoard(4, 2);
+    airBoard.terrain[0]![0] = { kind: 'factory', owner: 'red', capturePoints: 20 };
+    const airState = stateWith(createGameState(airBoard), { players: { red: { gold: 25_000, income: 0 }, blue: { gold: 0, income: 0 } }, units: [
+      { id: 'scout', kind: 'recon', owner: 'red', position: { x: 0, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'bomber', kind: 'bomber', owner: 'blue', position: { x: 3, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
+    ] });
+    expect(chooseCpuAction(airState)).toEqual({ type: 'produce', factory: { x: 0, y: 0 }, kind: 'fighter' });
+
+    const navalBoard = createBoard(2, 2, { kind: 'sea' });
+    navalBoard.terrain[0]![0] = { kind: 'port', owner: 'red', capturePoints: 20 };
+    navalBoard.terrain[1]![1] = { kind: 'city', owner: 'blue', capturePoints: 20 };
+    const navalState = stateWith(createGameState(navalBoard), { players: { red: { gold: 20_000, income: 0 }, blue: { gold: 0, income: 0 } } });
+    expect(chooseCpuAction(navalState)).toEqual({ type: 'produce', factory: { x: 0, y: 0 }, kind: 'destroyer' });
+  });
+
+  it('does not let an unseen enemy alter its move choice', () => {
+    const board = createBoard(6, 1);
+    board.terrain[0]![5] = { kind: 'capital', owner: 'blue', capturePoints: 20 };
+    const base = stateWith(createGameState(board), { units: [
+      { id: 'infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ] });
+    const withHiddenEnemy = stateWith(base, { units: [...base.units, { id: 'hidden', kind: 'rocket', owner: 'blue', position: { x: 5, y: 0 }, hp: 100, hasMoved: false, hasActed: false }] });
+    expect(chooseCpuAction(withHiddenEnemy)).toEqual(chooseCpuAction(base));
   });
 });
 
