@@ -1,4 +1,5 @@
-import { isPropertyTerrainKind } from './facilities';\nimport type { Board, GameState, PlayerId, Position, Terrain, Unit } from './types';
+import { isPropertyTerrainKind } from './facilities';
+import type { Board, GameState, PlayerId, Position, Terrain, Unit } from './types';
 
 export function createBoard(width: number, height: number, fill: Terrain = { kind: 'plain' }): Board {
   return { width, height, terrain: Array.from({ length: height }, () => Array.from({ length: width }, () => ({ ...fill }))) };
