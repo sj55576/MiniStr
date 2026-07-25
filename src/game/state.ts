@@ -1,5 +1,5 @@
 import { isPropertyTerrainKind } from './facilities';
-import type { Board, GameState, PlayerId, Position, Terrain, Unit } from './types';
+import { isDeployedUnit, type Board, type GameState, type PlayerId, type Position, type Terrain, type Unit } from './types';
 
 export function createBoard(width: number, height: number, fill: Terrain = { kind: 'plain' }): Board {
   return { width, height, terrain: Array.from({ length: height }, () => Array.from({ length: width }, () => ({ ...fill }))) };
@@ -13,7 +13,7 @@ export function createGameState(board: Board, seed = 1): GameState {
 }
 
 export function unitAt(state: GameState, position: Position): Unit | undefined {
-  return state.units.find(unit => unit.position.x === position.x && unit.position.y === position.y);
+  return state.units.find(unit => isDeployedUnit(unit) && unit.position.x === position.x && unit.position.y === position.y);
 }
 
 export function playerOwnedProperties(state: GameState, player: PlayerId): Terrain[] {
