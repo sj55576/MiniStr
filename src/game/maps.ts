@@ -46,6 +46,22 @@ export const maps: readonly ScenarioDefinition[] = [
       { kind: 'infantry', owner: 'blue', x: 11, y: 5 }, { kind: 'fighter', owner: 'blue', x: 10, y: 7 }, { kind: 'destroyer', owner: 'blue', x: 8, y: 5 }),
   },
   {
+    id: 'landing', name: '海峡上陸作戦', startingGold: 0,
+    briefing: '海峡の向こうにある敵司令部を占領せよ。歩兵は輸送艦に乗船してから航行し、敵島の海岸へ上陸する必要がある。敵司令部を占領すれば勝利、自軍司令部を占領されれば敗北となる。',
+    victoryConditions: [{ type: 'captureCapital' }], defeatConditions: [{ type: 'captureCapital' }], turnLimit: 18,
+    board: paint(createBoard(10, 6, { kind: 'sea' }), [
+      [0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [0, 1, 'capital', 'red'], [1, 1, 'plain'], [2, 1, 'plain'],
+      [0, 2, 'plain'], [1, 2, 'plain'], [2, 2, 'plain'], [0, 3, 'plain'], [1, 3, 'port', 'red'], [2, 3, 'plain'],
+      [0, 4, 'plain'], [1, 4, 'plain'], [2, 4, 'plain'], [0, 5, 'plain'], [1, 5, 'plain'], [2, 5, 'plain'],
+      [7, 0, 'plain'], [8, 0, 'plain'], [9, 0, 'plain'], [7, 1, 'plain'], [8, 1, 'plain'], [9, 1, 'plain'],
+      [7, 2, 'plain'], [8, 2, 'port', 'blue'], [9, 2, 'plain'], [7, 3, 'plain'], [8, 3, 'plain'], [9, 3, 'plain'],
+      [7, 4, 'plain'], [8, 4, 'plain'], [9, 4, 'capital', 'blue'], [7, 5, 'plain'], [8, 5, 'plain'], [9, 5, 'plain'],
+    ]),
+    initialUnits: units(
+      { kind: 'infantry', owner: 'red', x: 2, y: 2 }, { kind: 'landingShip', owner: 'red', x: 3, y: 2 },
+      { kind: 'infantry', owner: 'blue', x: 7, y: 4 }, { kind: 'landingShip', owner: 'blue', x: 6, y: 4 }),
+  },
+  {
     id: 'canyon', name: '峡谷の関門', startingGold: 11000,
     briefing: '峡谷中央の関門を突破し、敵軍を撃破せよ。',
     victoryConditions: standardVictory, defeatConditions: standardVictory,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBoard, createGameState, type GameState } from '../game';
+import { applyGameCommand, createBoard, createGameState, endTurn, maps, reachablePositions, type GameState } from '../game';
 import { chooseCpuAction } from './rules';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
@@ -38,7 +38,6 @@ describe('Phase 3 rule-based CPU', () => {
     const state = stateWith(createGameState(board), { units: [
       { id: 'i', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
     ] });
-    // Infantry move 3 on open plains, so it should cover three tiles rather than crawling one.
     expect(chooseCpuAction(state, 'normal')).toEqual({ type: 'move', unitId: 'i', destination: { x: 3, y: 0 } });
   });
 
@@ -51,7 +50,6 @@ describe('Phase 3 rule-based CPU', () => {
     expect(chooseCpuAction(state, 'normal')).toEqual({ type: 'move', unitId: 'i', destination: { x: 2, y: 0 } });
   });
 });
-
 
 describe('CPU fog-of-war attacks', () => {
   it('does not choose an attack against an in-range enemy outside allied vision', () => {
@@ -69,5 +67,62 @@ describe('CPU fog-of-war attacks', () => {
       { id: 'target', kind: 'tank', owner: 'blue', position: { x: 4, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
     ] });
     expect(chooseCpuAction(state)).toEqual({ type: 'attack', unitId: 'rocket', targetId: 'target' });
+  });
+});
+
+function islandTransportState(withShip = true): GameState {
+  const board = createBoard(8, 3, { kind: 'sea' });
+  for (let y = 0; y < 3; y += 1) {
+    board.terrain[y]![0] = { kind: 'plain' };
+    board.terrain[y]![1] = { kind: 'plain' };
+  }
+  board.terrain[1]![7] = { kind: 'capital', owner: 'red', capturePoints: 20 };
+  board.terrain[0]![0] = { kind: 'port', owner: 'blue', capturePoints: 20 };
+  const state = createGameState(board);
+  state.activePlayer = 'blue';
+  state.players.blue.gold = 10_000;
+  state.units = [
+    { id: 'infantry', kind: 'infantry', owner: 'blue', position: { x: 1, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
+    ...(withShip ? [{ id: 'ship', kind: 'landingShip' as const, owner: 'blue' as const, position: { x: 2, y: 1 }, hp: 100, hasMoved: false, hasActed: false }] : []),
+  ];
+  return state;
+}
+
+describe('CPU amphibious transport', () => {
+  it('boards, sails, and lands infantry toward a remote capital with only legal commands', () => {
+    let state = islandTransportState();
+    const first = chooseCpuAction(state);
+    expect(first).toEqual({ type: 'embark', unitId: 'infantry', transportId: 'ship' });
+    let result = applyGameCommand(state, first);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    state = endTurn(endTurn(result.value));
+
+    const sail = chooseCpuAction(state);
+    expect(sail).toMatchObject({ type: 'move', unitId: 'ship' });
+    result = applyGameCommand(state, sail);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    state = endTurn(endTurn(result.value));
+
+    const land = chooseCpuAction(state);
+    expect(land).toEqual({ type: 'disembark', transportId: 'ship', destination: { x: 7, y: 1 } });
+    expect(applyGameCommand(state, land).ok).toBe(true);
+  });
+
+  it('builds a landing ship at an empty port before factory units when an infantry objective is remote', () => {
+    const action = chooseCpuAction(islandTransportState(false));
+    expect(action).toEqual({ type: 'produce', factory: { x: 0, y: 0 }, kind: 'landingShip' });
+  });
+
+  it('includes a dedicated scenario whose capital objective cannot be reached by walking', () => {
+    const scenario = maps.find(map => map.id === 'landing');
+    expect(scenario?.victoryConditions).toEqual([{ type: 'captureCapital' }]);
+    const state = createGameState(scenario!.board);
+    const redInfantry = scenario!.initialUnits.find(unit => unit.owner === 'red' && unit.kind === 'infantry')!;
+    const enemyCapital = { x: 9, y: 4 };
+    state.units = [{ id: 'red-infantry', kind: 'infantry', owner: 'red', position: { x: redInfantry.x, y: redInfantry.y }, hp: 100, hasMoved: false, hasActed: false }];
+    expect(reachablePositions(state, 'red-infantry')).not.toContainEqual(enemyCapital);
+    expect(scenario!.initialUnits.some(unit => unit.owner === 'red' && unit.kind === 'landingShip')).toBe(true);
   });
 });
