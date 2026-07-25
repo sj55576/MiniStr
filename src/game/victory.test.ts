@@ -17,9 +17,10 @@ function scenario(patch: Partial<ScenarioDefinition> = {}): ScenarioDefinition {
 }
 
 describe('data-driven victory conditions', () => {
-  it('migrates every legacy map to a compatible scenario', () => {
-    expect(maps).toHaveLength(4);
-    for (const map of maps) {
+  it('keeps four legacy maps compatible while allowing dedicated scenarios', () => {
+    const legacyMaps = maps.filter(map => map.id !== 'landing');
+    expect(legacyMaps).toHaveLength(4);
+    for (const map of legacyMaps) {
       expect(map.briefing.length).toBeGreaterThan(0);
       expect(map.victoryConditions).toEqual([{ type: 'eliminate' }, { type: 'captureCapital' }]);
       expect(map.defeatConditions).toEqual(map.victoryConditions);
