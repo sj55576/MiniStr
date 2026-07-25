@@ -1,5 +1,5 @@
 import './style.css';
-import { applyGameCommand, AUTO_SAVE_KEY, campaignStages, createCampaignProgress, createGameState, createReplay, deleteSaves, describeVictoryCondition, forecastCombat, getConditionProgress, gradeCampaignBattle, hasSavedGame, isCampaignScenarioUnlocked, loadCampaignProgress, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, recordCampaignVictory, saveCampaignProgress, saveGame, serializeReplay, summarizeReplay, type CampaignGradeResult, type GameCommand, type GameState, type PlayerId, type Position, type ReplayFile, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visiblePositions } from './game';
+import { allProducibleUnitKinds, applyGameCommand, AUTO_SAVE_KEY, campaignStages, canProduceUnit, createCampaignProgress, createGameState, createReplay, deleteSaves, describeVictoryCondition, forecastCombat, getConditionProgress, gradeCampaignBattle, hasSavedGame, isCampaignScenarioUnlocked, isPropertyTerrainKind, loadCampaignProgress, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, recordCampaignVictory, saveCampaignProgress, saveGame, serializeReplay, summarizeReplay, type CampaignGradeResult, type GameCommand, type GameState, type PlayerId, type Position, type ReplayFile, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visiblePositions } from './game';
 import { chooseCpuAction, type CpuDifficulty } from './ai';
 import { nextBoardPosition } from './ui/boardNavigation';
 
@@ -28,7 +28,7 @@ const difficultyNames: Record<CpuDifficulty, string> = { easy: '易しい', norm
 
 const terrainNames: Record<string, string> = {
   plain: '平原', forest: '森林', mountain: '山岳', road: '道路', sea: '海',
-  city: '都市', factory: '工場', capital: '司令部',
+  city: '都市', factory: '工場', port: '港湾', capital: '司令部',
 };
 const unitTokens: Record<UnitKind, string> = {
   infantry: '歩', tank: '戦', artillery: '砲', fighter: '戦', bomber: '爆', destroyer: '艦', recon: '偵', rocket: '自',
@@ -36,7 +36,7 @@ const unitTokens: Record<UnitKind, string> = {
 const unitNames: Record<UnitKind, string> = {
   infantry: '歩兵', tank: '戦車', artillery: '砲兵', fighter: '戦闘機', bomber: '爆撃機', destroyer: '駆逐艦', recon: '偵察車', rocket: '自走砲',
 };
-const producibleUnits: readonly UnitKind[] = ['infantry', 'recon', 'tank', 'artillery', 'rocket', 'fighter', 'bomber', 'destroyer'];
+const producibleUnits = allProducibleUnitKinds;
 
 function start(id: string): GameState {
   selectedMap = maps.find(map => map.id === id) ?? maps[0]!;
@@ -222,16 +222,17 @@ function render(): void {
     const unit = renderedGame.units.find(item => item.position.x === x && item.position.y === y);
     const hidden = renderedGame.activePlayer === 'red' && !visible.has(`${x},${y}`);
     const terrainName = terrainNames[terrain.kind] ?? terrain.kind;
-    const isProperty = terrain.kind === 'city' || terrain.kind === 'factory' || terrain.kind === 'capital';
+    const isProperty = isPropertyTerrainKind(terrain.kind);
     const propertyOwner = isProperty ? terrain.owner : undefined;
     const capturePoints = isProperty ? terrain.capturePoints : undefined;
-    const propertyLabel = isProperty ? `${terrainName}${propertyOwner ? `（${propertyOwner === 'red' ? '自軍' : '敵軍'}）` : '（中立）'}${capturePoints !== undefined ? `、占領値 ${capturePoints}` : ''}` : terrainName;
+    const facilityDetail = terrain.kind === 'port' ? '、補給・駆逐艦を生産可能' : terrain.kind === 'factory' ? '、補給・ユニット生産拠点' : '';
+    const propertyLabel = isProperty ? `${terrainName}${propertyOwner ? `（${propertyOwner === 'red' ? '自軍' : '敵軍'}）` : '（中立）'}${capturePoints !== undefined ? `、占領値 ${capturePoints}` : ''}${facilityDetail}` : terrainName;
     const unitLabel = unit && !hidden ? `${unit.owner === 'red' ? 'プレイヤー' : 'CPU'}の${unitNames[unit.kind]}、耐久 ${unit.hp}` : '';
     const label = unit && !hidden
       ? `<span class="unit ${unit.owner} unit-${unit.kind}" aria-hidden="true"><b>${unitTokens[unit.kind]}</b><small>${unit.hp}</small><em>${unitNames[unit.kind]}</em><i class="unit-owner-marker">${unit.owner === 'red' ? '自' : '敵'}</i></span>`
       : '';
     const facility = isProperty && !hidden
-      ? `<span class="facility facility-${terrain.kind} ${propertyOwner ?? 'neutral'}" aria-hidden="true"><b>${terrain.kind === 'city' ? '市' : terrain.kind === 'factory' ? '工' : '司'}</b><small>${propertyOwner === 'red' ? '自軍' : propertyOwner === 'blue' ? '敵軍' : '中立'}${capturePoints !== undefined ? ` ${capturePoints}` : ''}</small></span>`
+      ? `<span class="facility facility-${terrain.kind} ${propertyOwner ?? 'neutral'}" aria-hidden="true"><b>${terrain.kind === 'city' ? '市' : terrain.kind === 'factory' ? '工' : terrain.kind === 'port' ? '港' : '司'}</b><small>${propertyOwner === 'red' ? '自軍' : propertyOwner === 'blue' ? '敵軍' : '中立'}${capturePoints !== undefined ? ` ${capturePoints}` : ''}</small></span>`
       : '';
     const isSelected = unit?.id === selected;
     const isReachable = movable.has(`${x},${y}`);
@@ -239,11 +240,17 @@ function render(): void {
     const stateMarker = isSelected ? '<span class="tile-state-marker selected-marker" aria-hidden="true">選</span>' : isReachable ? '<span class="tile-state-marker reachable-marker" aria-hidden="true">移</span>' : '';
     return `<button ${replayMode ? 'disabled' : ''} class="tile ${terrain.kind} ${isSelected ? 'selected' : ''} ${isReachable ? 'reachable' : ''} ${hidden ? 'fog' : ''}" data-x="${x}" data-y="${y}" data-terrain="${terrain.kind}" tabindex="${focusedPosition.x === x && focusedPosition.y === y ? '0' : '-1'}" title="${propertyLabel}${unitLabel ? ` — ${unitLabel}` : ''}" aria-label="${propertyLabel}${unitLabel ? `、${unitLabel}` : ''}${status}">${stateMarker}${facility}${label}</button>`;
   })).join('');
-  const production = producibleUnits.map(kind => `<button class="produce produce-${kind}" data-kind="${kind}" ${replayMode || renderedGame.activePlayer !== 'red' ? 'disabled' : ''} title="${unitNames[kind]}を生産 (${unitStats[kind].cost}G)" aria-label="${unitNames[kind]}を${unitStats[kind].cost}ゴールドで生産"><span aria-hidden="true">${unitTokens[kind]}</span>${unitNames[kind]} <em>${unitStats[kind].cost}G</em></button>`).join('');
+  const production = producibleUnits.map(kind => {
+    const hasFacility = renderedGame.board.terrain.some((row, y) => row.some((tile, x) =>
+      tile.owner === renderedGame.activePlayer && canProduceUnit(tile.kind, kind)
+      && !renderedGame.units.some(unit => unit.position.x === x && unit.position.y === y)));
+    const facilityName = kind === 'destroyer' ? '港湾' : '工場';
+    return `<button class="produce produce-${kind}" data-kind="${kind}" ${replayMode || renderedGame.activePlayer !== 'red' || !hasFacility ? 'disabled' : ''} title="${facilityName}で${unitNames[kind]}を生産 (${unitStats[kind].cost}G)" aria-label="${facilityName}で${unitNames[kind]}を${unitStats[kind].cost}ゴールドで生産"><span aria-hidden="true">${unitTokens[kind]}</span>${unitNames[kind]} <em>${unitStats[kind].cost}G</em></button>`;
+  }).join('');
   const activeLabel = renderedGame.activePlayer === 'red' ? 'プレイヤー' : 'CPU';
   const selectedUnit = renderedGame.units.find(unit => unit.id === selected);
   const selectedTerrain = selectedUnit ? renderedGame.board.terrain[selectedUnit.position.y]?.[selectedUnit.position.x] : undefined;
-  const canCapture = selectedUnit?.owner === renderedGame.activePlayer && selectedUnit.kind === 'infantry' && selectedTerrain && ['city', 'factory', 'capital'].includes(selectedTerrain.kind) && selectedTerrain.owner !== renderedGame.activePlayer;
+  const canCapture = selectedUnit?.owner === renderedGame.activePlayer && selectedUnit.kind === 'infantry' && selectedTerrain && isPropertyTerrainKind(selectedTerrain.kind) && selectedTerrain.owner !== renderedGame.activePlayer;
   const captureAction = !replayMode && canCapture ? `<section class="capture-card"><p class="card-kicker">PROPERTY ACTION</p><strong>${terrainNames[selectedTerrain!.kind]}を占領</strong><span>${selectedTerrain!.owner === 'blue' ? '敵軍' : '中立'}拠点・占領値 ${selectedTerrain!.capturePoints ?? '—'}</span><button class="capture" id="capture" aria-label="この拠点を占領する">占領する</button></section>` : '';
   const forecasts = !replayMode && selectedUnit && selectedUnit.owner === renderedGame.activePlayer
     ? visibleEnemies(renderedGame, selectedUnit.owner).map(enemy => ({ enemy, forecast: forecastCombat(renderedGame, selectedUnit, enemy) })).filter((item): item is { enemy: typeof item.enemy; forecast: Extract<typeof item.forecast, { ok: true }> } => item.forecast.ok)
@@ -275,8 +282,8 @@ function render(): void {
   app.innerHTML = `<main class="game-shell">
     <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択" ${replayMode || campaignRun ? 'disabled' : ''}>${maps.map(map => `<option value="${map.id}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択" ${replayMode ? 'disabled' : ''}>${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === renderedDifficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="save-controls"><button id="open-campaign" class="save-action" ${replayMode ? 'disabled' : ''}>キャンペーン</button><button id="continue" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>続きから</button><button id="save" class="save-action" ${replayMode ? 'disabled' : ''}>手動セーブ</button><button id="delete-save" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>対局セーブ削除</button><button id="undo" class="save-action" ${!replayMode && renderedGame.activePlayer === 'red' && undoStack.length > 0 ? '' : 'disabled'}>1手戻す</button><button id="import-replay" class="save-action" ${replayMode ? 'disabled' : ''}>JSON取込</button><input id="replay-file" class="visually-hidden" type="file" accept=".json,application/json" aria-label="JSONリプレイファイルを選択"></div><div class="turn-indicator ${renderedGame.activePlayer}"><span>${replayMode ? 'REPLAY' : campaignRun ? 'CAMPAIGN' : 'TURN'}</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する" ${replayMode ? 'disabled' : ''}>ターン終了 <span aria-hidden="true">→</span></button></header>
     ${replay ? `<section class="replay-toolbar" aria-label="リプレイ再生コントロール"><div><p class="card-kicker">REPLAY</p><strong aria-live="polite">${replay.index} / ${replay.file.commands.length} 手</strong></div><button id="replay-toggle" class="end-turn" aria-label="${replay.playing ? 'リプレイを一時停止' : replay.index >= replay.file.commands.length ? 'リプレイを最初から再生' : 'リプレイを再生'}" ${replay.file.commands.length === 0 ? 'disabled' : ''}>${replay.playing ? '一時停止' : replay.index >= replay.file.commands.length ? 'もう一度再生' : '再生'}</button><button id="replay-step" class="save-action" ${replay.playing || replay.index >= replay.file.commands.length ? 'disabled' : ''}>1手送り</button><label class="replay-speed">速度<select id="replay-speed" aria-label="リプレイ再生速度">${([0.5, 1, 2, 4] as const).map(speed => `<option value="${speed}" ${speed === replay!.speed ? 'selected' : ''}>${speed}x</option>`).join('')}</select></label><button id="replay-exit" class="save-action">リプレイを終了</button></section>` : ''}
-    <section class="battle-layout"><div class="battlefield-wrap ${mapTheme}"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(renderedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><p id="board-instructions" class="board-instructions">盤面では矢印キーでマスを移動し、Enter または Space で選択・行動、Esc で選択を解除できます。</p><div class="board" role="group" aria-label="${escapeHtml(renderedMap.name)}の戦術マップ" aria-describedby="board-instructions" style="grid-template-columns:repeat(${renderedGame.board.width},1fr)">${board}</div><div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot" aria-hidden="true">移</i>移動可能</span><span><i class="legend-dot fog-dot" aria-hidden="true">?</i>未索敵</span><span><i class="legend-unit red-dot" aria-hidden="true">自</i>自軍</span><span><i class="legend-unit blue-dot" aria-hidden="true">敵</i>敵軍</span><span><i class="legend-facility" aria-hidden="true">拠</i>拠点（市・工・司）</span></div></div>
-    <aside class="command-panel" aria-label="作戦情報">${objectivePanel}<section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(renderedGame, renderedGame.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給し、工場では生産できます。</p></aside>
+    <section class="battle-layout"><div class="battlefield-wrap ${mapTheme}"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(renderedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><p id="board-instructions" class="board-instructions">盤面では矢印キーでマスを移動し、Enter または Space で選択・行動、Esc で選択を解除できます。</p><div class="board" role="group" aria-label="${escapeHtml(renderedMap.name)}の戦術マップ" aria-describedby="board-instructions" style="grid-template-columns:repeat(${renderedGame.board.width},1fr)">${board}</div><div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot" aria-hidden="true">移</i>移動可能</span><span><i class="legend-dot fog-dot" aria-hidden="true">?</i>未索敵</span><span><i class="legend-unit red-dot" aria-hidden="true">自</i>自軍</span><span><i class="legend-unit blue-dot" aria-hidden="true">敵</i>敵軍</span><span><i class="legend-facility" aria-hidden="true">拠</i>拠点（市・工・港・司）</span></div></div>
+    <aside class="command-panel" aria-label="作戦情報">${objectivePanel}<section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(renderedGame, renderedGame.activePlayer).length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section><p class="command-tip">歩兵は中立・敵軍の都市、工場、港湾、司令部で<strong>占領</strong>できます。拠点は毎ターン資金を供給して補給を行い、駆逐艦は港湾でのみ生産できます。</p></aside>
   </section></main>${gameOverOverlay}${briefing}${campaignOverlay}`;
   if (briefing || campaignOverlay) {
     app.querySelector('main')?.setAttribute('inert', '');
@@ -300,7 +307,15 @@ function render(): void {
       tile.onclick = () => { focusedPosition = position; act(position); focusBoardPosition(focusedPosition); };
       tile.onkeydown = event => handleBoardKey(event, position);
     });
-    app.querySelectorAll<HTMLButtonElement>('.produce').forEach(button => button.onclick = () => { const factory = game.board.terrain.flatMap((row,y) => row.map((tile,x) => ({ tile,x,y }))).find(item => item.tile.kind === 'factory' && item.tile.owner === game.activePlayer); if (factory) { if (dispatch({ type: 'produce', factory: { x: factory.x, y: factory.y }, kind: button.dataset.kind as UnitKind }, true)) message = '生産しました。'; render(); } });
+    app.querySelectorAll<HTMLButtonElement>('.produce').forEach(button => button.onclick = () => {
+      const kind = button.dataset.kind as UnitKind;
+      const facility = game.board.terrain.flatMap((row, y) => row.map((tile, x) => ({ tile, x, y })))
+        .find(item => item.tile.owner === game.activePlayer && canProduceUnit(item.tile.kind, kind)
+          && !game.units.some(unit => unit.position.x === item.x && unit.position.y === item.y));
+      if (!facility) { message = '生産可能な空き施設がありません。'; render(); return; }
+      if (dispatch({ type: 'produce', factory: { x: facility.x, y: facility.y }, kind }, true)) message = '生産しました。';
+      render();
+    });
     document.querySelector<HTMLButtonElement>('#capture')?.addEventListener('click', guardNormal(() => {
       if (!selected) return;
       if (dispatch({ type: 'capture', unitId: selected }, true)) message = '拠点の占領を進めました。';

@@ -1,3 +1,4 @@
+import { isPropertyTerrainKind } from './facilities';
 import { createBoard } from './state';
 import type { Board, PlayerId, Position, TerrainKind, UnitKind } from './types';
 
@@ -19,7 +20,7 @@ type Cell = readonly [number, number, TerrainKind, PlayerId?];
 
 const paint = (board: Board, cells: readonly Cell[]): Board => ({ ...board, terrain: board.terrain.map((row, y) => row.map((tile, x) => {
   const hit = cells.find(([cx, cy]) => x === cx && y === cy);
-  return hit ? { kind: hit[2], owner: hit[3], capturePoints: ['city', 'factory', 'capital'].includes(hit[2]) ? 20 : undefined } : tile;
+  return hit ? { kind: hit[2], owner: hit[3], capturePoints: isPropertyTerrainKind(hit[2]) ? 20 : undefined } : tile;
 })) });
 
 const units = (...initialUnits: InitialUnit[]) => initialUnits;
@@ -39,7 +40,7 @@ export const maps: readonly ScenarioDefinition[] = [
     id: 'islands', name: '群島補給線', startingGold: 9000,
     briefing: '群島の補給線を確保し、敵の戦力か司令部を無力化せよ。',
     victoryConditions: standardVictory, defeatConditions: standardVictory,
-    board: paint(createBoard(12, 8, { kind: 'sea' }), [[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [0, 1, 'capital', 'red'], [1, 1, 'factory', 'red'], [2, 1, 'plain'], [0, 2, 'plain'], [1, 2, 'plain'], [2, 2, 'plain'], [9, 5, 'plain'], [10, 5, 'plain'], [11, 5, 'plain'], [9, 6, 'plain'], [10, 6, 'factory', 'blue'], [11, 6, 'capital', 'blue'], [9, 7, 'plain'], [10, 7, 'plain'], [11, 7, 'plain'], [4, 3, 'plain'], [5, 3, 'city'], [6, 4, 'plain'], [7, 4, 'city']]),
+    board: paint(createBoard(12, 8, { kind: 'sea' }), [[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [0, 1, 'capital', 'red'], [1, 1, 'factory', 'red'], [2, 1, 'port', 'red'], [0, 2, 'plain'], [1, 2, 'plain'], [2, 2, 'plain'], [9, 5, 'plain'], [10, 5, 'plain'], [11, 5, 'plain'], [9, 6, 'port', 'blue'], [10, 6, 'factory', 'blue'], [11, 6, 'capital', 'blue'], [9, 7, 'plain'], [10, 7, 'plain'], [11, 7, 'plain'], [4, 3, 'plain'], [5, 3, 'city'], [6, 4, 'plain'], [7, 4, 'city']]),
     initialUnits: units(
       { kind: 'infantry', owner: 'red', x: 0, y: 2 }, { kind: 'fighter', owner: 'red', x: 1, y: 0 }, { kind: 'destroyer', owner: 'red', x: 3, y: 2 },
       { kind: 'infantry', owner: 'blue', x: 11, y: 5 }, { kind: 'fighter', owner: 'blue', x: 10, y: 7 }, { kind: 'destroyer', owner: 'blue', x: 8, y: 5 }),

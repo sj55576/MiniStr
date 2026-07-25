@@ -1,6 +1,6 @@
 export type PlayerId = 'red' | 'blue';
 export type UnitKind = 'infantry' | 'tank' | 'artillery' | 'fighter' | 'bomber' | 'destroyer' | 'recon' | 'rocket';
-export type TerrainKind = 'plain' | 'forest' | 'road' | 'mountain' | 'sea' | 'city' | 'factory' | 'capital';
+export type TerrainKind = 'plain' | 'forest' | 'road' | 'mountain' | 'sea' | 'city' | 'factory' | 'port' | 'capital';
 
 export interface Position { x: number; y: number }
 
