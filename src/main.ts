@@ -225,7 +225,8 @@ function render(): void {
     const isProperty = isPropertyTerrainKind(terrain.kind);
     const propertyOwner = isProperty ? terrain.owner : undefined;
     const capturePoints = isProperty ? terrain.capturePoints : undefined;
-    const facilityDetail = terrain.kind === 'port' ? '、補給・駆逐艦を生産可能' : terrain.kind === 'factory' ? '、補給・ユニット生産拠点' : '';\n    const propertyLabel = isProperty ? `${terrainName}${propertyOwner ? `（${propertyOwner === 'red' ? '自軍' : '敵軍'}）` : '（中立）'}${capturePoints !== undefined ? `、占領値 ${capturePoints}` : ''}${facilityDetail}` : terrainName;
+    const facilityDetail = terrain.kind === 'port' ? '、補給・駆逐艦を生産可能' : terrain.kind === 'factory' ? '、補給・ユニット生産拠点' : '';
+    const propertyLabel = isProperty ? `${terrainName}${propertyOwner ? `（${propertyOwner === 'red' ? '自軍' : '敵軍'}）` : '（中立）'}${capturePoints !== undefined ? `、占領値 ${capturePoints}` : ''}${facilityDetail}` : terrainName;
     const unitLabel = unit && !hidden ? `${unit.owner === 'red' ? 'プレイヤー' : 'CPU'}の${unitNames[unit.kind]}、耐久 ${unit.hp}` : '';
     const label = unit && !hidden
       ? `<span class="unit ${unit.owner} unit-${unit.kind}" aria-hidden="true"><b>${unitTokens[unit.kind]}</b><small>${unit.hp}</small><em>${unitNames[unit.kind]}</em><i class="unit-owner-marker">${unit.owner === 'red' ? '自' : '敵'}</i></span>`
