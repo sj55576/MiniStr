@@ -6,7 +6,7 @@ import { canProduceUnit, isPropertyTerrainKind } from './facilities';
 import { visibleEnemies } from './fog';
 import { scenarioById } from './maps';
 import { updateScenarioProgress, updateScenarioScores, withEvaluatedWinner } from './victory';
-import { otherPlayer, type GameResult, type GameState, type PlayerId, type Position, type UnitKind } from './types';
+import { isDeployedUnit, otherPlayer, type GameResult, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from './types';
 
 const fail = <T = GameState>(error: string): GameResult<T> => ({ ok: false, error });
 const succeed = <T>(value: T): GameResult<T> => ({ ok: true, value });
@@ -15,6 +15,7 @@ export function moveUnit(state: GameState, unitId: string, destination: Position
   if (state.winner) return fail('Game has finished');
   const unit = state.units.find(candidate => candidate.id === unitId);
   if (!unit) return fail('Unit not found');
+  if (!isDeployedUnit(unit)) return fail('Embarked units cannot move');
   if (unit.owner !== state.activePlayer) return fail('Unit belongs to the other player');
   if (unit.hasMoved) return fail('Unit has already moved');
   if ((unit.fuel ?? unitStats[unit.kind].fuel) <= 0) return fail('Unit is out of fuel');
@@ -35,9 +36,9 @@ export function moveUnit(state: GameState, unitId: string, destination: Position
  */
 export function movementCosts(state: GameState, unitId: string): Map<string, number> {
   const unit = state.units.find(candidate => candidate.id === unitId);
-  if (!unit) return new Map();
+  if (!unit || !isDeployedUnit(unit)) return new Map();
   const budget = Math.min(unitStats[unit.kind].movement, unit.fuel ?? unitStats[unit.kind].fuel);
-  const occupied = new Set(state.units.filter(candidate => candidate.id !== unitId).map(candidate => positionKey(candidate.position)));
+  const occupied = new Set(state.units.filter((candidate): candidate is Unit & { position: Position } => candidate.id !== unitId && isDeployedUnit(candidate)).map(candidate => positionKey(candidate.position)));
   const costs = new Map<string, number>([[positionKey(unit.position), 0]]);
   // Small frontier, so a linear-scan priority queue keeps the code simple without hurting performance.
   const frontier = new Map<string, { position: Position; cost: number }>([[positionKey(unit.position), { position: { ...unit.position }, cost: 0 }]]);
@@ -63,7 +64,7 @@ export function movementCosts(state: GameState, unitId: string): Map<string, num
 /** Tiles the unit can move to (excludes its current tile), for UI highlighting and AI planning. */
 export function reachablePositions(state: GameState, unitId: string): Position[] {
   const unit = state.units.find(candidate => candidate.id === unitId);
-  if (!unit) return [];
+  if (!unit || !isDeployedUnit(unit)) return [];
   const origin = positionKey(unit.position);
   return [...movementCosts(state, unitId).keys()].filter(key => key !== origin).map(key => {
     const [x, y] = key.split(',').map(Number);
@@ -73,6 +74,7 @@ export function reachablePositions(state: GameState, unitId: string): Position[]
 
 /** When a unit leaves a property it was partway through capturing, the property recovers to full. */
 function releaseCaptureProgress(board: GameState['board'], unit: GameState['units'][number]) {
+  if (!isDeployedUnit(unit)) return board;
   const tile = terrainAt(board, unit.position);
   if (!tile || !isPropertyTerrainKind(tile.kind) || tile.owner === unit.owner || tile.capturePoints === undefined || tile.capturePoints >= 20) return board;
   return { ...board, terrain: board.terrain.map((row, y) => row.map((cell, x) => samePosition({ x, y }, unit.position) ? { ...cell, capturePoints: 20 } : cell)) };
@@ -105,7 +107,7 @@ export function produceUnit(state: GameState, facility: Position, kind: UnitKind
 export function captureProperty(state: GameState, unitId: string): GameResult {
   if (state.winner) return fail('Game has finished');
   const unit = state.units.find(candidate => candidate.id === unitId);
-  if (!unit || unit.owner !== state.activePlayer) return fail('An active player unit is required');
+  if (!unit || !isDeployedUnit(unit) || unit.owner !== state.activePlayer) return fail('An active player unit is required');
   if (unit.hasActed) return fail('Unit has already acted');
   const terrain = terrainAt(state.board, unit.position);
   if (!terrain || !isPropertyTerrainKind(terrain.kind) || terrain.owner === unit.owner) return fail('No enemy property to capture');
@@ -121,18 +123,61 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
   if (state.winner) return fail('Game has finished');
   const attacker = state.units.find(unit => unit.id === attackerId);
   const defender = state.units.find(unit => unit.id === defenderId);
-  if (!attacker || !defender || attacker.owner !== state.activePlayer || attacker.hasActed) return fail('Unit cannot attack');
+  if (!attacker || !defender || !isDeployedUnit(attacker) || !isDeployedUnit(defender) || attacker.owner !== state.activePlayer || attacker.hasActed) return fail('Unit cannot attack');
   if ((attacker.ammo ?? unitStats[attacker.kind].ammo) <= 0) return fail('Unit is out of ammunition');
   if (defender.owner !== attacker.owner && !visibleEnemies(state, attacker.owner).some(unit => unit.id === defender.id)) return fail('Target is not visible');
   const forecast = forecastCombat(state, attacker, defender);
   if (!forecast.ok) return forecast;
-  const nextUnits = state.units.map(unit => {
+  const damagedUnits = state.units.map(unit => {
     if (unit.id === attacker.id) return { ...unit, hp: Math.max(0, unit.hp - forecast.value.counterDamage), ammo: (unit.ammo ?? unitStats[unit.kind].ammo) - 1, hasActed: true };
     if (unit.id === defender.id) return { ...unit, hp: Math.max(0, unit.hp - forecast.value.defenderDamage), ammo: forecast.value.canCounter ? (unit.ammo ?? unitStats[unit.kind].ammo) - 1 : unit.ammo };
     return unit;
-  }).filter(unit => unit.hp > 0);
+  });
+  const destroyedUnitIds = new Set(damagedUnits.filter(unit => unit.hp <= 0).map(unit => unit.id));
+  const nextUnits = damagedUnits.filter(unit => unit.hp > 0 && (!unit.embarkedIn || !destroyedUnitIds.has(unit.embarkedIn)));
   const next = updateScenarioScores(state, { ...state, units: nextUnits });
   return succeed(withEvaluatedWinner(next, [{ type: 'eliminate' }]));
+}
+
+function adjacent(first: Position, second: Position): boolean {
+  return Math.abs(first.x - second.x) + Math.abs(first.y - second.y) === 1;
+}
+
+function canDeployInfantry(state: GameState, destination: Position): boolean {
+  const terrain = terrainAt(state.board, destination);
+  return !!terrain && terrain.kind !== 'sea' && Number.isFinite(movementCost(state.board, destination, 'infantry'));
+}
+
+/** Boards an adjacent, empty allied landing ship. Both units are spent to prevent a same-turn sea crossing. */
+export function embarkUnit(state: GameState, unitId: string, transportId: string): GameResult {
+  if (state.winner) return fail('Game has finished');
+  const unit = state.units.find(candidate => candidate.id === unitId);
+  const transport = state.units.find(candidate => candidate.id === transportId);
+  if (!unit || !transport || !isDeployedUnit(unit) || !isDeployedUnit(transport)) return fail('A deployed infantry unit and transport are required');
+  if (unit.owner !== state.activePlayer || transport.owner !== unit.owner) return fail('An active player transport is required');
+  if (unit.kind !== 'infantry') return fail('Only infantry may embark');
+  if (transport.kind !== 'landingShip') return fail('A landing ship is required');
+  if (unit.hasActed || transport.hasMoved || transport.hasActed) return fail('Unit or transport has already acted');
+  if (!canDeployInfantry(state, unit.position) || !adjacent(unit.position, transport.position)) return fail('Infantry must embark from an adjacent coast');
+  if (state.units.some(candidate => candidate.embarkedIn === transport.id)) return fail('Landing ship is already carrying a unit');
+  return succeed({ ...state, units: state.units.map(candidate => candidate.id === unit.id
+    ? { ...candidate, position: undefined, embarkedIn: transport.id, hasMoved: true, hasActed: true }
+    : candidate.id === transport.id ? { ...candidate, hasMoved: true, hasActed: true } : candidate) });
+}
+
+/** Lands the single carried infantry unit onto an adjacent, vacant land tile. */
+export function disembarkUnit(state: GameState, transportId: string, destination: Position): GameResult {
+  if (state.winner) return fail('Game has finished');
+  const transport = state.units.find(candidate => candidate.id === transportId);
+  if (!transport || !isDeployedUnit(transport) || transport.kind !== 'landingShip') return fail('A deployed landing ship is required');
+  if (transport.owner !== state.activePlayer) return fail('Unit belongs to the other player');
+  if (transport.hasMoved || transport.hasActed) return fail('Transport has already acted');
+  const cargo = state.units.find(candidate => candidate.embarkedIn === transport.id);
+  if (!cargo || cargo.kind !== 'infantry' || cargo.owner !== transport.owner) return fail('Landing ship has no valid infantry cargo');
+  if (!adjacent(transport.position, destination) || unitAt(state, destination) || !canDeployInfantry(state, destination)) return fail('Destination must be an adjacent vacant land tile');
+  return succeed({ ...state, units: state.units.map(candidate => candidate.id === cargo.id
+    ? { ...candidate, position: { ...destination }, embarkedIn: undefined, hasMoved: true, hasActed: true }
+    : candidate.id === transport.id ? { ...candidate, hasMoved: true, hasActed: true } : candidate) });
 }
 
 export function endTurn(state: GameState): GameState {
@@ -143,7 +188,8 @@ export function endTurn(state: GameState): GameState {
   const activePlayer = otherPlayer(state.activePlayer);
   const refreshed = progressed.units.map(unit => {
     if (unit.owner !== activePlayer) return unit;
-    const terrain = terrainAt(state.board, unit.position);
+    if (!isDeployedUnit(unit)) return { ...unit, hasMoved: false, hasActed: false };
+    const terrain = terrainAt(progressed.board, unit.position);
     const onOwnedProperty = !!terrain && isPropertyTerrainKind(terrain.kind) && terrain.owner === activePlayer;
     if (!onOwnedProperty) return { ...unit, hasMoved: false, hasActed: false };
     const stats = unitStats[unit.kind];

@@ -1,4 +1,4 @@
-import { attackUnit, captureProperty, endTurn, moveUnit, produceUnit } from './commands';
+import { attackUnit, captureProperty, disembarkUnit, embarkUnit, endTurn, moveUnit, produceUnit } from './commands';
 import { maps } from './maps';
 import type { GameResult, GameState, Position, UnitKind } from './types';
 
@@ -12,6 +12,8 @@ export type GameCommand =
   | { type: 'attack'; unitId: string; targetId: string }
   | { type: 'capture'; unitId: string }
   | { type: 'produce'; factory: Position; kind: UnitKind }
+  | { type: 'embark'; unitId: string; transportId: string }
+  | { type: 'disembark'; transportId: string; destination: Position }
   | { type: 'endTurn' };
 
 export interface SavedGame {
@@ -38,6 +40,8 @@ export function applyGameCommand(state: GameState, command: GameCommand): GameRe
     case 'attack': return attackUnit(state, command.unitId, command.targetId);
     case 'capture': return captureProperty(state, command.unitId);
     case 'produce': return produceUnit(state, command.factory, command.kind);
+    case 'embark': return embarkUnit(state, command.unitId, command.transportId);
+    case 'disembark': return disembarkUnit(state, command.transportId, command.destination);
     case 'endTurn': return { ok: true, value: endTurn(state) };
   }
 }
@@ -58,7 +62,7 @@ const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 const isPosition = (value: unknown): value is Position =>
   isRecord(value) && Number.isInteger(value.x) && Number.isInteger(value.y);
-const unitKinds = new Set<UnitKind>(['infantry', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'recon', 'rocket']);
+const unitKinds = new Set<UnitKind>(['infantry', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'landingShip', 'recon', 'rocket']);
 const terrainKinds = new Set(['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'port', 'capital']);
 const players = new Set(['red', 'blue']);
 const mapIds = new Set(maps.map(map => map.id));
@@ -80,6 +84,8 @@ export function isGameCommand(value: unknown): value is GameCommand {
   if (value.type === 'move') return typeof value.unitId === 'string' && isPosition(value.destination);
   if (value.type === 'attack') return typeof value.unitId === 'string' && typeof value.targetId === 'string';
   if (value.type === 'capture') return typeof value.unitId === 'string';
+  if (value.type === 'embark') return typeof value.unitId === 'string' && typeof value.transportId === 'string';
+  if (value.type === 'disembark') return typeof value.transportId === 'string' && isPosition(value.destination);
   return value.type === 'produce' && isPosition(value.factory)
     && typeof value.kind === 'string' && unitKinds.has(value.kind as UnitKind);
 }
@@ -100,20 +106,35 @@ export function isGameState(value: unknown): value is GameState {
   if (value.units.length > 4096) return false;
   const ids = new Set<string>();
   const positions = new Set<string>();
+  const unitsById = new Map<string, Record<string, unknown>>();
   for (const unit of value.units) {
     if (!isRecord(unit) || typeof unit.id !== 'string' || ids.has(unit.id)
       || typeof unit.kind !== 'string' || !unitKinds.has(unit.kind as UnitKind)
       || typeof unit.owner !== 'string' || !players.has(unit.owner)
-      || !isPosition(unit.position) || unit.position.x < 0 || unit.position.y < 0
-      || unit.position.x >= (width as number) || unit.position.y >= (height as number)
       || !isFiniteNumber(unit.hp) || unit.hp <= 0 || unit.hp > 100
       || (unit.fuel !== undefined && (!isFiniteNumber(unit.fuel) || unit.fuel < 0))
       || (unit.ammo !== undefined && (!isFiniteNumber(unit.ammo) || unit.ammo < 0))
       || typeof unit.hasMoved !== 'boolean' || typeof unit.hasActed !== 'boolean') return false;
-    const position = `${unit.position.x},${unit.position.y}`;
-    if (positions.has(position)) return false;
+    const deployed = unit.position !== undefined && unit.embarkedIn === undefined;
+    const embarked = unit.position === undefined && typeof unit.embarkedIn === 'string';
+    if (!deployed && !embarked) return false;
+    if (deployed) {
+      if (!isPosition(unit.position) || unit.position.x < 0 || unit.position.y < 0
+        || unit.position.x >= (width as number) || unit.position.y >= (height as number)) return false;
+      const position = `${unit.position.x},${unit.position.y}`;
+      if (positions.has(position)) return false;
+      positions.add(position);
+    }
     ids.add(unit.id);
-    positions.add(position);
+    unitsById.set(unit.id, unit);
+  }
+  const cargoByTransport = new Set<string>();
+  for (const unit of value.units) {
+    if (!isRecord(unit) || unit.embarkedIn === undefined) continue;
+    const transport = unitsById.get(unit.embarkedIn as string);
+    if (!transport || transport.kind !== 'landingShip' || transport.owner !== unit.owner || transport.embarkedIn !== undefined
+      || unit.kind !== 'infantry' || cargoByTransport.has(unit.embarkedIn as string)) return false;
+    cargoByTransport.add(unit.embarkedIn as string);
   }
   const validPlayerState = (state: unknown) =>
     isRecord(state) && isFiniteNumber(state.gold) && state.gold >= 0

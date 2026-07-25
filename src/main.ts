@@ -1,5 +1,5 @@
 import './style.css';
-import { allProducibleUnitKinds, applyGameCommand, AUTO_SAVE_KEY, campaignStages, canProduceUnit, createCampaignProgress, createGameState, createReplay, deleteSaves, describeVictoryCondition, forecastCombat, getConditionProgress, gradeCampaignBattle, hasSavedGame, isCampaignScenarioUnlocked, isPropertyTerrainKind, loadCampaignProgress, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, recordCampaignVictory, saveCampaignProgress, saveGame, serializeReplay, summarizeReplay, type CampaignGradeResult, type GameCommand, type GameState, type PlayerId, type Position, type ReplayFile, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visiblePositions } from './game';
+import { allProducibleUnitKinds, applyGameCommand, AUTO_SAVE_KEY, campaignStages, canProduceUnit, createCampaignProgress, createGameState, createReplay, deleteSaves, describeVictoryCondition, forecastCombat, getConditionProgress, gradeCampaignBattle, hasSavedGame, isCampaignScenarioUnlocked, isDeployedUnit, isPropertyTerrainKind, loadCampaignProgress, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositions, recordCampaignVictory, saveCampaignProgress, saveGame, serializeReplay, summarizeReplay, type CampaignGradeResult, type GameCommand, type GameState, type PlayerId, type Position, type ReplayFile, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visiblePositions } from './game';
 import { chooseCpuAction, type CpuDifficulty } from './ai';
 import { nextBoardPosition } from './ui/boardNavigation';
 
@@ -31,10 +31,10 @@ const terrainNames: Record<string, string> = {
   city: '都市', factory: '工場', port: '港湾', capital: '司令部',
 };
 const unitTokens: Record<UnitKind, string> = {
-  infantry: '歩', tank: '戦', artillery: '砲', fighter: '戦', bomber: '爆', destroyer: '艦', recon: '偵', rocket: '自',
+  infantry: '歩', tank: '戦', artillery: '砲', fighter: '戦', bomber: '爆', destroyer: '艦', landingShip: '輸', recon: '偵', rocket: '自',
 };
 const unitNames: Record<UnitKind, string> = {
-  infantry: '歩兵', tank: '戦車', artillery: '砲兵', fighter: '戦闘機', bomber: '爆撃機', destroyer: '駆逐艦', recon: '偵察車', rocket: '自走砲',
+  infantry: '歩兵', tank: '戦車', artillery: '砲兵', fighter: '戦闘機', bomber: '爆撃機', destroyer: '駆逐艦', landingShip: '輸送艦', recon: '偵察車', rocket: '自走砲',
 };
 const producibleUnits = allProducibleUnitKinds;
 
@@ -219,7 +219,7 @@ function render(): void {
   const visible = new Set(visiblePositions(renderedGame, renderedGame.activePlayer).map(key));
   const movable = !replayMode && selected ? new Set(reachablePositions(renderedGame, selected).map(key)) : new Set<string>();
   const board = renderedGame.board.terrain.flatMap((row, y) => row.map((terrain, x) => {
-    const unit = renderedGame.units.find(item => item.position.x === x && item.position.y === y);
+    const unit = renderedGame.units.find(item => isDeployedUnit(item) && item.position.x === x && item.position.y === y);
     const hidden = renderedGame.activePlayer === 'red' && !visible.has(`${x},${y}`);
     const terrainName = terrainNames[terrain.kind] ?? terrain.kind;
     const isProperty = isPropertyTerrainKind(terrain.kind);
@@ -243,13 +243,13 @@ function render(): void {
   const production = producibleUnits.map(kind => {
     const hasFacility = renderedGame.board.terrain.some((row, y) => row.some((tile, x) =>
       tile.owner === renderedGame.activePlayer && canProduceUnit(tile.kind, kind)
-      && !renderedGame.units.some(unit => unit.position.x === x && unit.position.y === y)));
-    const facilityName = kind === 'destroyer' ? '港湾' : '工場';
+      && !renderedGame.units.some(unit => isDeployedUnit(unit) && unit.position.x === x && unit.position.y === y)));
+    const facilityName = kind === 'destroyer' || kind === 'landingShip' ? '港湾' : '工場';
     return `<button class="produce produce-${kind}" data-kind="${kind}" ${replayMode || renderedGame.activePlayer !== 'red' || !hasFacility ? 'disabled' : ''} title="${facilityName}で${unitNames[kind]}を生産 (${unitStats[kind].cost}G)" aria-label="${facilityName}で${unitNames[kind]}を${unitStats[kind].cost}ゴールドで生産"><span aria-hidden="true">${unitTokens[kind]}</span>${unitNames[kind]} <em>${unitStats[kind].cost}G</em></button>`;
   }).join('');
   const activeLabel = renderedGame.activePlayer === 'red' ? 'プレイヤー' : 'CPU';
   const selectedUnit = renderedGame.units.find(unit => unit.id === selected);
-  const selectedTerrain = selectedUnit ? renderedGame.board.terrain[selectedUnit.position.y]?.[selectedUnit.position.x] : undefined;
+  const selectedTerrain = selectedUnit && isDeployedUnit(selectedUnit) ? renderedGame.board.terrain[selectedUnit.position.y]?.[selectedUnit.position.x] : undefined;
   const canCapture = selectedUnit?.owner === renderedGame.activePlayer && selectedUnit.kind === 'infantry' && selectedTerrain && isPropertyTerrainKind(selectedTerrain.kind) && selectedTerrain.owner !== renderedGame.activePlayer;
   const captureAction = !replayMode && canCapture ? `<section class="capture-card"><p class="card-kicker">PROPERTY ACTION</p><strong>${terrainNames[selectedTerrain!.kind]}を占領</strong><span>${selectedTerrain!.owner === 'blue' ? '敵軍' : '中立'}拠点・占領値 ${selectedTerrain!.capturePoints ?? '—'}</span><button class="capture" id="capture" aria-label="この拠点を占領する">占領する</button></section>` : '';
   const forecasts = !replayMode && selectedUnit && selectedUnit.owner === renderedGame.activePlayer
@@ -311,7 +311,7 @@ function render(): void {
       const kind = button.dataset.kind as UnitKind;
       const facility = game.board.terrain.flatMap((row, y) => row.map((tile, x) => ({ tile, x, y })))
         .find(item => item.tile.owner === game.activePlayer && canProduceUnit(item.tile.kind, kind)
-          && !game.units.some(unit => unit.position.x === item.x && unit.position.y === item.y));
+          && !game.units.some(unit => isDeployedUnit(unit) && unit.position.x === item.x && unit.position.y === item.y));
       if (!facility) { message = '生産可能な空き施設がありません。'; render(); return; }
       if (dispatch({ type: 'produce', factory: { x: facility.x, y: facility.y }, kind }, true)) message = '生産しました。';
       render();
@@ -423,7 +423,7 @@ function handleBoardKey(event: KeyboardEvent, position: Position): void {
   }
 }
 
-function act(position: Position): void { if (replay) return; const target = game.units.find(unit => key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { if (dispatch({ type: 'attack', unitId: selected, targetId: target.id }, true)) message = '攻撃しました。'; selected = undefined; } else if (selected && dispatch({ type: 'move', unitId: selected, destination: position }, true)) message = '移動しました。'; render(); }
+function act(position: Position): void { if (replay) return; const target = game.units.find(unit => isDeployedUnit(unit) && key(unit.position) === key(position)); if (target?.owner === game.activePlayer) { selected = target.id; message = `${unitNames[target.kind]}を選択しました。`; } else if (target && selected) { if (dispatch({ type: 'attack', unitId: selected, targetId: target.id }, true)) message = '攻撃しました。'; selected = undefined; } else if (selected && dispatch({ type: 'move', unitId: selected, destination: position }, true)) message = '移動しました。'; render(); }
 function runCpu(): void {
   if (replay) return;
   for (let steps = 0; steps < 30 && game.activePlayer === 'blue' && !game.winner; steps += 1) {
