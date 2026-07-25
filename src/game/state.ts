@@ -1,4 +1,4 @@
-import type { Board, GameState, PlayerId, Position, Terrain, Unit } from './types';
+import { isPropertyTerrainKind } from './facilities';\nimport type { Board, GameState, PlayerId, Position, Terrain, Unit } from './types';
 
 export function createBoard(width: number, height: number, fill: Terrain = { kind: 'plain' }): Board {
   return { width, height, terrain: Array.from({ length: height }, () => Array.from({ length: width }, () => ({ ...fill }))) };
@@ -16,5 +16,5 @@ export function unitAt(state: GameState, position: Position): Unit | undefined {
 }
 
 export function playerOwnedProperties(state: GameState, player: PlayerId): Terrain[] {
-  return state.board.terrain.flat().filter(tile => tile.owner === player && ['city', 'factory', 'capital'].includes(tile.kind));
+  return state.board.terrain.flat().filter(tile => tile.owner === player && isPropertyTerrainKind(tile.kind));
 }
