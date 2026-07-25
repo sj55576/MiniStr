@@ -1,8 +1,9 @@
 import { forecastCombat } from '../game/combat';
 import { reachablePositions } from '../game/commands';
+import { isPropertyTerrainKind } from '../game/facilities';
 import { visibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
-import { manhattanDistance, movementCost, terrainAt } from '../game/terrain';
+import { defenseStars, manhattanDistance, movementCost, terrainAt } from '../game/terrain';
 import { isDeployedUnit, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
 import { unitStats } from '../game/units';
 
@@ -52,6 +53,12 @@ function favorableAttack(state: GameState, attacker: DeployedUnit, target: Unit,
     || result.value.defenderDamage >= result.value.counterDamage + config.attackSafetyMargin;
 }
 
+function interruptsCapture(state: GameState, player: PlayerId, target: Unit): boolean {
+  if (!isDeployedUnit(target) || target.kind !== 'infantry') return false;
+  const terrain = terrainAt(state.board, target.position);
+  return !!terrain && isPropertyTerrainKind(terrain.kind) && terrain.owner === player && (terrain.capturePoints ?? 20) < 20;
+}
+
 function attackAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
   const visibleTargets = visibleEnemies(state, player);
   for (const attacker of orderedUnits(state, player)) {
@@ -63,7 +70,8 @@ function attackAction(state: GameState, player: PlayerId, config: CpuDifficultyC
         const bForecast = forecastCombat(state, attacker, b);
         const aScore = aForecast.ok ? aForecast.value.defenderDamage - aForecast.value.counterDamage : -Infinity;
         const bScore = bForecast.ok ? bForecast.value.defenderDamage - bForecast.value.counterDamage : -Infinity;
-        return bScore - aScore || a.hp - b.hp || a.id.localeCompare(b.id);
+        const interruption = Number(interruptsCapture(state, player, b)) - Number(interruptsCapture(state, player, a));
+        return interruption || bScore - aScore || a.hp - b.hp || a.id.localeCompare(b.id);
       })[0];
     if (target) return { type: 'attack', unitId: attacker.id, targetId: target.id };
   }
@@ -81,6 +89,37 @@ function preferredProduction(state: GameState, player: PlayerId): UnitKind | und
     .sort((a, b) => (weights[b] - counts[b]) - (weights[a] - counts[a]) || unitStats[a].cost - unitStats[b].cost)[0];
 }
 
+function emptyOwnedFacility(state: GameState, player: PlayerId, kind: UnitKind): Position | undefined {
+  for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
+    const position = { x, y };
+    const tile = terrainAt(state.board, position);
+    if (tile?.owner === player && !unitAt(state, position)) {
+      const canBuild = (tile.kind === 'factory' && !['destroyer', 'landingShip'].includes(kind))
+        || (tile.kind === 'port' && ['destroyer', 'landingShip'].includes(kind));
+      if (canBuild) return position;
+    }
+  }
+  return undefined;
+}
+
+/** Production reacts only to confirmed units and board topology, never hidden enemies. */
+function specialistProduction(state: GameState, player: PlayerId): CpuAction | undefined {
+  const gold = state.players[player].gold;
+  const visible = visibleEnemies(state, player).filter(isDeployedUnit);
+  const hasSea = state.board.terrain.some(row => row.some(tile => tile.kind === 'sea'));
+  const ownKinds = new Set(state.units.filter(unit => unit.owner === player).map(unit => unit.kind));
+  const candidates: UnitKind[] = [];
+  if (hasSea && !ownKinds.has('destroyer') && (visible.some(unit => unit.kind === 'destroyer' || unit.kind === 'landingShip') || state.board.terrain.some(row => row.some(tile => tile.kind === 'port')))) candidates.push('destroyer');
+  if (!ownKinds.has('fighter') && visible.some(unit => unit.kind === 'fighter' || unit.kind === 'bomber')) candidates.push('fighter');
+  if (!ownKinds.has('bomber') && visible.some(unit => ['tank', 'artillery', 'rocket', 'destroyer'].includes(unit.kind))) candidates.push('bomber');
+  for (const kind of candidates) {
+    if (unitStats[kind].cost > gold) continue;
+    const factory = emptyOwnedFacility(state, player, kind);
+    if (factory) return { type: 'produce', factory, kind };
+  }
+  return undefined;
+}
+
 function productionAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
   const targets = objectives(state, player, config);
   const hasRemoteInfantry = orderedUnits(state, player)
@@ -88,20 +127,15 @@ function productionAction(state: GameState, player: PlayerId, config: CpuDifficu
     .some(unit => targets.some(target => !sameLandComponent(state, unit.position, target)));
   const hasLandingShip = state.units.some(unit => unit.owner === player && unit.kind === 'landingShip');
   if (hasRemoteInfantry && !hasLandingShip && state.players[player].gold >= unitStats.landingShip.cost) {
-    for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
-      const port = { x, y };
-      const tile = terrainAt(state.board, port);
-      if (tile?.kind === 'port' && tile.owner === player && !unitAt(state, port)) return { type: 'produce', factory: port, kind: 'landingShip' };
-    }
+    const port = emptyOwnedFacility(state, player, 'landingShip');
+    if (port) return { type: 'produce', factory: port, kind: 'landingShip' };
   }
+  const specialist = specialistProduction(state, player);
+  if (specialist) return specialist;
   const kind = preferredProduction(state, player);
   if (!kind) return undefined;
-  for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
-    const factory = { x, y };
-    const tile = terrainAt(state.board, factory);
-    if (tile?.kind === 'factory' && tile.owner === player && !unitAt(state, factory)) return { type: 'produce', factory, kind };
-  }
-  return undefined;
+  const factory = emptyOwnedFacility(state, player, kind);
+  return factory ? { type: 'produce', factory, kind } : undefined;
 }
 
 function objectives(state: GameState, player: PlayerId, config: CpuDifficultyConfig): Position[] {
@@ -149,6 +183,36 @@ function sameLandComponent(state: GameState, first: Position, second: Position):
 
 function nearestTarget(position: Position, targets: readonly Position[]): Position | undefined {
   return [...targets].sort((a, b) => manhattanDistance(position, a) - manhattanDistance(position, b) || a.y - b.y || a.x - b.x)[0];
+}
+
+function needsSupply(unit: DeployedUnit): boolean {
+  const stats = unitStats[unit.kind];
+  return (unit.fuel ?? stats.fuel) <= Math.max(6, Math.floor(stats.fuel / 3))
+    || ((unit.ammo ?? stats.ammo) > 0 && (unit.ammo ?? stats.ammo) <= Math.max(1, Math.floor(stats.ammo / 3)));
+}
+
+/**
+ * Scores a legal destination from knowledge available to the CPU.  Visible opponents
+ * contribute counterattack risk; unseen units are intentionally absent from this function.
+ */
+export function evaluateCpuPosition(state: GameState, player: PlayerId, unit: DeployedUnit, destination: Position, targets: readonly Position[]): number {
+  const terrain = terrainAt(state.board, destination);
+  if (!terrain) return Number.NEGATIVE_INFINITY;
+  const moved: DeployedUnit = { ...unit, position: { ...destination } };
+  const projected = { ...state, units: state.units.map(candidate => candidate.id === unit.id ? moved : candidate) };
+  const defense = defenseStars(terrain) * 9;
+  const supply = needsSupply(unit) && isPropertyTerrainKind(terrain.kind) && terrain.owner === player ? 80 : 0;
+  const distance = targets.length ? Math.min(...targets.map(target => manhattanDistance(destination, target))) : 0;
+  const pressure = visibleEnemies(state, player).filter(isDeployedUnit).reduce((risk, enemy) => {
+    const forecast = forecastCombat(projected, enemy, moved);
+    return risk + (forecast.ok ? forecast.value.defenderDamage * 1.4 : 0);
+  }, 0);
+  const captureThreat = visibleEnemies(state, player).some(enemy => interruptsCapture(state, player, enemy))
+    ? visibleEnemies(state, player).filter((enemy): enemy is DeployedUnit => isDeployedUnit(enemy) && interruptsCapture(state, player, enemy))
+      .reduce((best, enemy) => Math.min(best, manhattanDistance(destination, enemy.position)), Infinity)
+    : Infinity;
+  const response = Number.isFinite(captureThreat) ? Math.max(0, 36 - captureThreat * 7) : 0;
+  return defense + supply + response - distance * 6 - pressure;
 }
 
 /** Choose one transport step before ordinary movement so island objectives are never stranded. */
@@ -200,12 +264,11 @@ function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyCon
   if (!targets.length) return undefined;
   for (const unit of orderedUnits(state, player)) {
     if (unit.hasMoved) continue;
-    const currentDistance = Math.min(...targets.map(target => manhattanDistance(unit.position, target)));
-    // Advance across the unit's whole movement range (Dijkstra reachability), not one tile at a time.
+    // Advance across the unit's whole movement range (Dijkstra reachability), weighing cover,
+    // resupply and visible counterattack risk instead of raw distance alone.
     const destination = reachablePositions(state, unit.id)
-      .map(position => ({ position, distance: Math.min(...targets.map(target => manhattanDistance(position, target))) }))
-      .filter(candidate => candidate.distance < currentDistance)
-      .sort((a, b) => a.distance - b.distance || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
+      .map(position => ({ position, score: evaluateCpuPosition(state, player, unit, position, targets) }))
+      .sort((a, b) => b.score - a.score || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
     if (destination) return { type: 'move', unitId: unit.id, destination };
   }
   return undefined;
