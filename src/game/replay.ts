@@ -1,8 +1,9 @@
-import { maps } from './maps';
+import { createScenarioInitialState, scenarioById } from './maps';
 import {
   applyGameCommand, isGameCommand, isGameState, replayCommands, type GameCommand,
 } from './session';
-import { otherPlayer, type GameResult, type GameState, type PlayerId } from './types';
+import { countDestroyedDeployedUnits } from './victory';
+import { type GameResult, type GameState, type PlayerId } from './types';
 
 /**
  * Schema v1 is additive: `Unit.embarkedIn` is optional, so pre-landing-ship
@@ -42,7 +43,6 @@ export interface ReplayInput {
   commands: readonly GameCommand[];
 }
 
-const mapIds = new Set(maps.map(map => map.id));
 const difficulties = new Set<ReplayDifficulty>(['easy', 'normal', 'hard']);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -67,7 +67,7 @@ function isIsoTimestamp(value: unknown): value is string {
 function isReplaySummary(value: unknown): value is ReplaySummary {
   return isRecord(value)
     && hasOnlyKeys(value, ['mapId', 'difficulty', 'winner', 'turns', 'kills', 'captures'])
-    && typeof value.mapId === 'string' && mapIds.has(value.mapId)
+    && typeof value.mapId === 'string' && scenarioById(value.mapId) !== undefined
     && typeof value.difficulty === 'string' && difficulties.has(value.difficulty as ReplayDifficulty)
     && (value.winner === 'red' || value.winner === 'blue')
     && Number.isSafeInteger(value.turns) && (value.turns as number) >= 1
@@ -115,12 +115,13 @@ function sameValue(left: unknown, right: unknown): boolean {
 }
 
 function validateReplayShape(value: unknown): value is ReplayFile {
+  const scenario = isRecord(value) && typeof value.mapId === 'string' ? scenarioById(value.mapId) : undefined;
   if (!hasSafeJsonDepth(value) || !isRecord(value)
     || !hasOnlyKeys(value, ['schemaVersion', 'mapId', 'difficulty', 'initialState', 'commands', 'finalState', 'summary', 'createdAt'])
     || value.schemaVersion !== REPLAY_SCHEMA_VERSION
-    || typeof value.mapId !== 'string' || !mapIds.has(value.mapId)
+    || typeof value.mapId !== 'string' || scenario === undefined
     || typeof value.difficulty !== 'string' || !difficulties.has(value.difficulty as ReplayDifficulty)
-    || !isGameState(value.initialState) || !isGameState(value.finalState)
+    || !isGameState(value.initialState) || !sameValue(value.initialState, createScenarioInitialState(scenario)) || !isGameState(value.finalState)
     || !Array.isArray(value.commands) || value.commands.length > MAX_REPLAY_COMMANDS
     || !value.commands.every(isGameCommand)
     || !isReplaySummary(value.summary)
@@ -134,7 +135,9 @@ export function summarizeReplay(
   mapId: string,
   difficulty: ReplayDifficulty,
 ): GameResult<ReplaySummary> {
-  if (!mapIds.has(mapId) || !difficulties.has(difficulty) || !isGameState(initialState)
+  const scenario = scenarioById(mapId);
+  if (!scenario || !difficulties.has(difficulty) || !isGameState(initialState)
+    || !sameValue(initialState, createScenarioInitialState(scenario))
     || commands.length > MAX_REPLAY_COMMANDS || !commands.every(isGameCommand))
     return { ok: false, error: 'リプレイデータの内容が不正です。' };
 
@@ -151,10 +154,9 @@ export function summarizeReplay(
     state = result.value;
 
     if (command.type === 'attack') {
-      const survivors = new Set(state.units.map(unit => unit.id));
-      for (const unit of previous.units) {
-        if (!survivors.has(unit.id)) kills[otherPlayer(unit.owner)] += 1;
-      }
+      const destroyed = countDestroyedDeployedUnits(previous, state);
+      kills.red += destroyed.red;
+      kills.blue += destroyed.blue;
     }
 
     if (command.type === 'capture') {
@@ -176,10 +178,11 @@ export function summarizeReplay(
 }
 
 export function createReplay(input: ReplayInput): GameResult<ReplayFile> {
+  const scenario = isRecord(input) && typeof input.mapId === 'string' ? scenarioById(input.mapId) : undefined;
   if (!isRecord(input) || !hasOnlyKeys(input, ['mapId', 'difficulty', 'initialState', 'commands'])
-    || typeof input.mapId !== 'string' || !mapIds.has(input.mapId)
+    || typeof input.mapId !== 'string' || scenario === undefined
     || typeof input.difficulty !== 'string' || !difficulties.has(input.difficulty as ReplayDifficulty)
-    || !isGameState(input.initialState) || !Array.isArray(input.commands)
+    || !isGameState(input.initialState) || !sameValue(input.initialState, createScenarioInitialState(scenario)) || !Array.isArray(input.commands)
     || input.commands.length > MAX_REPLAY_COMMANDS || !input.commands.every(isGameCommand))
     return { ok: false, error: 'リプレイデータの内容が不正です。' };
 
