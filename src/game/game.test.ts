@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, disembarkUnit, embarkUnit, endTurn, forecastCombat, getConditionProgress, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, reachablePositionsForPlayer, replayCommands, saveGame, serializeReplay, terrainRules, unitAt, unitStats, type GameCommand, type GameState, type StorageLike } from './index';
+import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, createScenarioInitialState, disembarkUnit, embarkUnit, endTurn, forecastCombat, getConditionProgress, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, reachablePositionsForPlayer, replayCommands, saveCustomScenario, saveGame, scenarioById, serializeReplay, terrainRules, unitAt, unitStats, type GameCommand, type GameState, type StorageLike } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -137,7 +137,7 @@ describe('Phase 2 game rules', () => {
     const result = forecastCombat(state,
       { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
       { id: 'd', kind: 'artillery', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
-    expect(result.ok && result.value).toMatchObject({ defenderDamage: 74, counterDamage: 0, canCounter: false });
+    expect(result.ok && result.value).toMatchObject({ damageToDefender: 74, damageToAttacker: 0, canCounter: false });
   });
 
   it('prevents movement after attacking while preserving move-then-attack', () => {
@@ -530,25 +530,29 @@ describe('Phase 6.2 landing ships and embarked infantry', () => {
 });
 
 describe('Phase 6.4 transport save and replay compatibility', () => {
-  const transportVictory = (): { initialState: GameState; commands: GameCommand[] } => {
-    const board = createBoard(4, 1, { kind: 'sea' });
-    board.terrain[0]![0] = { kind: 'plain' };
-    board.terrain[0]![3] = { kind: 'capital', owner: 'blue', capturePoints: 10 };
-    const initialState = createGameState(board);
-    initialState.units = [
-      { id: 'infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
-      { id: 'ship', kind: 'landingShip', owner: 'red', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
-    ];
+  const transportVictory = (): { mapId: string; initialState: GameState; commands: GameCommand[] } => {
+    const mapId = 'transport-history-test';
+    const saved = saveCustomScenario(storage(), {
+      id: mapId, name: '輸送履歴テスト', briefing: '', startingGold: 0,
+      board: { width: 4, height: 1, fill: 'sea', cells: [[0, 0, 'plain'], [3, 0, 'capital', 'blue']] },
+      initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 0 }, { kind: 'landingShip', owner: 'red', x: 1, y: 0 }],
+      victoryConditions: [{ type: 'captureCapital' }], defeatConditions: [{ type: 'eliminate' }],
+    });
+    if (!saved.ok) throw new Error(saved.error);
+    const initialState = createScenarioInitialState(saved.value);
     return {
+      mapId,
       initialState,
       commands: [
-        { type: 'embark', unitId: 'infantry', transportId: 'ship' },
+        { type: 'embark', unitId: 'r1', transportId: 'r2' },
         { type: 'endTurn' }, { type: 'endTurn' },
-        { type: 'move', unitId: 'ship', destination: { x: 2, y: 0 } },
+        { type: 'move', unitId: 'r2', destination: { x: 2, y: 0 } },
         { type: 'endTurn' }, { type: 'endTurn' },
-        { type: 'disembark', transportId: 'ship', destination: { x: 3, y: 0 } },
+        { type: 'disembark', transportId: 'r2', destination: { x: 3, y: 0 } },
         { type: 'endTurn' }, { type: 'endTurn' },
-        { type: 'capture', unitId: 'infantry' },
+        { type: 'capture', unitId: 'r1' },
+        { type: 'endTurn' }, { type: 'endTurn' },
+        { type: 'capture', unitId: 'r1' },
       ],
     };
   };
@@ -563,20 +567,20 @@ describe('Phase 6.4 transport save and replay compatibility', () => {
   };
 
   it('round-trips deterministic embark and disembark history through saves and replays', () => {
-    const { initialState, commands } = transportVictory();
+    const { mapId, initialState, commands } = transportVictory();
     const replayed = replayCommands(initialState, commands);
     expect(replayed.ok && replayed.value.winner).toBe('red');
     if (!replayed.ok) return;
 
     const memory = storage();
     const saved = saveGame(memory, 'transport', {
-      mapId: 'skirmish', difficulty: 'normal', initialState, commands, gameState: replayed.value,
+      mapId, difficulty: 'normal', initialState, commands, gameState: replayed.value,
     });
     expect(saved.ok).toBe(true);
     const loaded = parseSavedGame(memory.value!);
     expect(loaded).toEqual(saved);
 
-    const created = createReplay({ mapId: 'skirmish', difficulty: 'normal', initialState, commands });
+    const created = createReplay({ mapId, difficulty: 'normal', initialState, commands });
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     const serialized = serializeReplay(created.value);
@@ -588,20 +592,19 @@ describe('Phase 6.4 transport save and replay compatibility', () => {
   });
 
   it('keeps pre-transport v1 saves valid but safely rejects broken cargo links', () => {
-    const legacy = createGameState(createBoard(1, 1));
-    legacy.units = [{ id: 'legacy-infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false }];
+    const legacy = createScenarioInitialState(scenarioById('skirmish')!);
     const legacySaved = {
       schemaVersion: 1, mapId: 'skirmish', difficulty: 'easy', initialState: legacy,
       commands: [], gameState: legacy, savedAt: '2026-07-25T00:00:00.000Z',
     };
     expect(parseSavedGame(JSON.stringify(legacySaved)).ok).toBe(true);
 
-    const { initialState, commands } = transportVictory();
+    const { mapId, initialState, commands } = transportVictory();
     const replayed = replayCommands(initialState, commands);
     if (!replayed.ok) return;
     const malformedSave = {
-      ...legacySaved, initialState, commands,
-      gameState: { ...replayed.value, units: replayed.value.units.map(unit => unit.id === 'infantry'
+      ...legacySaved, mapId, initialState, commands,
+      gameState: { ...replayed.value, units: replayed.value.units.map(unit => unit.id === 'r1'
         ? { ...unit, position: undefined, embarkedIn: 'missing-ship' }
         : unit) },
     };
