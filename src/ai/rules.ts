@@ -50,10 +50,10 @@ function favorableAttack(state: GameState, attacker: DeployedUnit, target: Unit,
   // Hard difficulty accepts more retaliation risk, never an attack that cannot
   // damage its target. This also keeps the AI safe if future unit matchups have
   // a zero damage multiplier.
-  if (!result.ok || result.value.defenderDamage <= 0) return false;
+  if (!result.ok || result.value.damageToDefender <= 0) return false;
   // A certain destruction is always worthwhile. Otherwise difficulty controls accepted risk.
-  return result.value.defenderDamage >= target.hp
-    || result.value.defenderDamage >= result.value.counterDamage + config.attackSafetyMargin;
+  return result.value.damageToDefender >= target.hp
+    || result.value.damageToDefender >= result.value.damageToAttacker + config.attackSafetyMargin;
 }
 
 function interruptsCapture(state: GameState, player: PlayerId, target: Unit): boolean {
@@ -71,8 +71,8 @@ function attackAction(state: GameState, player: PlayerId, config: CpuDifficultyC
       .sort((a, b) => {
         const aForecast = forecastCombat(state, attacker, a);
         const bForecast = forecastCombat(state, attacker, b);
-        const aScore = aForecast.ok ? aForecast.value.defenderDamage - aForecast.value.counterDamage : -Infinity;
-        const bScore = bForecast.ok ? bForecast.value.defenderDamage - bForecast.value.counterDamage : -Infinity;
+        const aScore = aForecast.ok ? aForecast.value.damageToDefender - aForecast.value.damageToAttacker : -Infinity;
+        const bScore = bForecast.ok ? bForecast.value.damageToDefender - bForecast.value.damageToAttacker : -Infinity;
         const interruption = Number(interruptsCapture(state, player, b)) - Number(interruptsCapture(state, player, a));
         return interruption || bScore - aScore || a.hp - b.hp || a.id.localeCompare(b.id);
       })[0];
@@ -208,7 +208,7 @@ export function evaluateCpuPosition(state: GameState, player: PlayerId, unit: De
   const distance = targets.length ? Math.min(...targets.map(target => manhattanDistance(destination, target))) : 0;
   const pressure = visibleEnemies(state, player).filter(isDeployedUnit).reduce((risk, enemy) => {
     const forecast = forecastCombat(projected, enemy, moved);
-    return risk + (forecast.ok ? forecast.value.defenderDamage * 1.4 : 0);
+    return risk + (forecast.ok ? forecast.value.damageToDefender * 1.4 : 0);
   }, 0);
   const captureThreat = visibleEnemies(state, player).some(enemy => interruptsCapture(state, player, enemy))
     ? visibleEnemies(state, player).filter((enemy): enemy is DeployedUnit => isDeployedUnit(enemy) && interruptsCapture(state, player, enemy))
@@ -289,3 +289,4 @@ export function chooseCpuAction(state: GameState, difficulty: CpuDifficulty = 'n
     ?? moveAction(state, player, config)
     ?? { type: 'endTurn' };
 }
+
