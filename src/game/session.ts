@@ -1,5 +1,5 @@
 import { attackUnit, captureProperty, disembarkUnit, embarkUnit, endTurn, moveUnit, produceUnit } from './commands';
-import { maps } from './maps';
+import { createScenarioInitialState, scenarioById } from './maps';
 import type { GameResult, GameState, Position, UnitKind } from './types';
 
 /**
@@ -71,7 +71,6 @@ const isPosition = (value: unknown): value is Position =>
 const unitKinds = new Set<UnitKind>(['infantry', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'landingShip', 'recon', 'rocket']);
 const terrainKinds = new Set(['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'port', 'capital']);
 const players = new Set(['red', 'blue']);
-const mapIds = new Set(maps.map(map => map.id));
 
 const isScenarioScores = (value: unknown): boolean => {
   if (!isRecord(value) || Object.keys(value).some(key => !players.has(key))) return false;
@@ -177,16 +176,21 @@ export function isGameState(value: unknown): value is GameState {
     && Number.isSafeInteger(value.rngSeed) && (value.rngSeed as number) >= 0 && (value.rngSeed as number) <= 0xffff_ffff
     && Number.isSafeInteger(value.nextUnitId) && (value.nextUnitId as number) >= 1
     && (value.winner === undefined || players.has(value.winner as string))
-    && (value.scenarioId === undefined || (typeof value.scenarioId === 'string' && mapIds.has(value.scenarioId)))
+    && (value.scenarioId === undefined || (typeof value.scenarioId === 'string' && scenarioById(value.scenarioId) !== undefined))
     && (value.scores === undefined || isScenarioScores(value.scores))
     && (value.objectiveHoldTurns === undefined || isHoldProgress(value.objectiveHoldTurns));
 }
 
 function validateSavedGameShape(value: unknown): value is SavedGame {
+  const scenario = isRecord(value) && typeof value.mapId === 'string' ? scenarioById(value.mapId) : undefined;
   return isRecord(value) && value.schemaVersion === SAVE_SCHEMA_VERSION
-    && typeof value.mapId === 'string' && mapIds.has(value.mapId)
+    && typeof value.mapId === 'string' && scenario !== undefined
     && ['easy', 'normal', 'hard'].includes(String(value.difficulty))
     && typeof value.savedAt === 'string' && isGameState(value.initialState) && isGameState(value.gameState)
+    // A self-consistent edited save/replay must not be able to alter the map's
+    // turn-one gold, board, or forces. Custom IDs resolve through the loaded,
+    // persisted custom catalog rather than trusting the save payload.
+    && sameValue(value.initialState, createScenarioInitialState(scenario))
     && (value.campaignScenarioId === undefined || value.campaignScenarioId === value.mapId)
     && Array.isArray(value.commands) && value.commands.length <= 100_000 && value.commands.every(isGameCommand);
 }
@@ -214,8 +218,9 @@ export function parseSavedGame(serialized: string): GameResult<SavedGame> {
 export function saveGame(storage: StorageLike, key: string, game: Omit<SavedGame, 'schemaVersion' | 'savedAt'>): GameResult<SavedGame> {
   const saved: SavedGame = { schemaVersion: SAVE_SCHEMA_VERSION, ...structuredClone(game), savedAt: new Date().toISOString() };
   if (!validateSavedGameShape(saved)) return { ok: false, error: 'セーブデータの内容が不正です。' };
-  const validated = validateSavedGameConsistency(saved);
-  if (!validated.ok) return validated;
+  // Runtime saves originate from the already-applied command stream. Replaying
+  // that entire stream for every autosave is O(n²); untrusted serialized data
+  // is still replayed by parseSavedGame/loadGame before it can be used.
   const serialized = JSON.stringify(saved);
   if (new TextEncoder().encode(serialized).byteLength > MAX_SAVE_BYTES)
     return { ok: false, error: 'セーブデータが大きすぎます。' };
