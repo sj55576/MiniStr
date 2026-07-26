@@ -79,6 +79,20 @@ export function describeVictoryCondition(condition: VictoryCondition): string {
 }
 
 /**
+ * Counts destroyed deployed units for score and replay summaries. Cargo lost
+ * with a transport is intentionally not counted: it was not a board combatant
+ * at the time it disappeared.
+ */
+export function countDestroyedDeployedUnits(previous: GameState, next: GameState): Record<PlayerId, number> {
+  const destroyed: Record<PlayerId, number> = { red: 0, blue: 0 };
+  const survivors = new Set(next.units.map(unit => unit.id));
+  for (const unit of previous.units) {
+    if (isDeployedUnit(unit) && !survivors.has(unit.id)) destroyed[otherPlayer(unit.owner)] += 1;
+  }
+  return destroyed;
+}
+
+/**
  * Records one completed turn for hold objectives. Progress is consecutive: leaving
  * any required tile resets that player's counter. Other players' progress is kept.
  */
@@ -101,8 +115,9 @@ export function updateScenarioProgress(state: GameState, scenario: ScenarioDefin
 /** Adds one point per enemy destroyed and per property newly captured in a command. */
 export function updateScenarioScores(previous: GameState, next: GameState): GameState {
   const scores = { red: previous.scores?.red ?? 0, blue: previous.scores?.blue ?? 0 };
-  const survivors = new Set(next.units.map(unit => unit.id));
-  for (const lost of previous.units) if (isDeployedUnit(lost) && !survivors.has(lost.id)) scores[otherPlayer(lost.owner)] += 1;
+  const destroyed = countDestroyedDeployedUnits(previous, next);
+  scores.red += destroyed.red;
+  scores.blue += destroyed.blue;
   for (let y = 0; y < next.board.height; y += 1) {
     for (let x = 0; x < next.board.width; x += 1) {
       const before = previous.board.terrain[y]?.[x]?.owner;
