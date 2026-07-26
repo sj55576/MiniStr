@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { maps, unitStats } from './index';
+import { availableScenarios, createScenarioInitialState, loadCustomScenarios, maps, saveCustomScenario, scenarioById, unitStats, type ScenarioData, type ScenarioStorageLike } from './index';
+
+class MemoryStorage implements ScenarioStorageLike {
+  data = new Map<string, string>();
+  getItem(key: string) { return this.data.get(key) ?? null; }
+  setItem(key: string, value: string) { this.data.set(key, value); }
+  removeItem(key: string) { this.data.delete(key); }
+}
+
+const customScenario: ScenarioData = {
+  id: 'test-custom-persistence', name: '保存テスト', briefing: '検証済みのカスタム作戦。', startingGold: 1234,
+  board: { width: 2, height: 1, cells: [[0, 0, 'capital', 'red'], [1, 0, 'capital', 'blue']] },
+  initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 0 }, { kind: 'infantry', owner: 'blue', x: 1, y: 0 }],
+  victoryConditions: [{ type: 'captureCapital' }], defeatConditions: [{ type: 'captureCapital' }],
+};
 
 describe('expanded map roster', () => {
   it('offers five distinct scenarios with map-owned starting forces', () => {
@@ -21,5 +35,23 @@ describe('expanded map roster', () => {
     expect(unitStats.rocket).toMatchObject({ range: [3, 5], attack: 90 });
     expect(maps.some(map => map.initialUnits.some(unit => unit.kind === 'recon'))).toBe(true);
     expect(maps.some(map => map.initialUnits.some(unit => unit.kind === 'rocket'))).toBe(true);
+  });
+
+  it('persists custom scenarios, restores them into the selectable catalog, and creates canonical initial state', () => {
+    const storage = new MemoryStorage();
+    const saved = saveCustomScenario(storage, customScenario);
+    expect(saved.ok).toBe(true);
+    expect(scenarioById(customScenario.id)?.name).toBe(customScenario.name);
+    expect(availableScenarios().some(scenario => scenario.id === customScenario.id)).toBe(true);
+    if (saved.ok) expect(createScenarioInitialState(saved.value)).toMatchObject({
+      scenarioId: customScenario.id,
+      players: { red: { gold: 1234 }, blue: { gold: 1234 } },
+      units: [{ id: 'r1' }, { id: 'b1' }],
+    });
+
+    loadCustomScenarios(new MemoryStorage());
+    expect(scenarioById(customScenario.id)).toBeUndefined();
+    expect(loadCustomScenarios(storage).ok).toBe(true);
+    expect(scenarioById(customScenario.id)?.board.width).toBe(2);
   });
 });
