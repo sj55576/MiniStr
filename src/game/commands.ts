@@ -3,7 +3,7 @@ import { playerOwnedProperties, unitAt } from './state';
 import { unitStats } from './units';
 import { forecastCombat } from './combat';
 import { canProduceUnit, isPropertyTerrainKind } from './facilities';
-import { visibleEnemies } from './fog';
+import { visibleEnemies, visiblePositions } from './fog';
 import { scenarioById } from './maps';
 import { updateScenarioProgress, updateScenarioScores, withEvaluatedWinner } from './victory';
 import { isDeployedUnit, otherPlayer, type GameResult, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from './types';
@@ -18,6 +18,7 @@ export function moveUnit(state: GameState, unitId: string, destination: Position
   if (!isDeployedUnit(unit)) return fail('Embarked units cannot move');
   if (unit.owner !== state.activePlayer) return fail('Unit belongs to the other player');
   if (unit.hasMoved) return fail('Unit has already moved');
+  if (unit.hasActed) return fail('Unit has already acted');
   if ((unit.fuel ?? unitStats[unit.kind].fuel) <= 0) return fail('Unit is out of fuel');
   if (unitAt(state, destination)) return fail('Destination is occupied');
   const costs = movementCosts(state, unitId);
@@ -72,6 +73,16 @@ export function reachablePositions(state: GameState, unitId: string): Position[]
   });
 }
 
+/** Player-facing preview that omits enemies outside the viewer's reconnaissance range. */
+export function reachablePositionsForPlayer(state: GameState, unitId: string, viewer: PlayerId): Position[] {
+  const visible = new Set(visiblePositions(state, viewer).map(positionKey));
+  const preview = {
+    ...state,
+    units: state.units.filter(unit => unit.owner === viewer || !isDeployedUnit(unit) || visible.has(positionKey(unit.position))),
+  };
+  return reachablePositions(preview, unitId);
+}
+
 /** When a unit leaves a property it was partway through capturing, the property recovers to full. */
 function releaseCaptureProgress(board: GameState['board'], unit: GameState['units'][number]) {
   if (!isDeployedUnit(unit)) return board;
@@ -81,12 +92,15 @@ function releaseCaptureProgress(board: GameState['board'], unit: GameState['unit
 }
 
 export function collectIncome(state: GameState): GameState {
-  const players = (['red', 'blue'] as const).reduce((result, player) => {
-    const income = playerOwnedProperties(state, player).length * 1000;
-    result[player] = { gold: state.players[player].gold + income, income };
-    return result;
-  }, {} as GameState['players']);
-  return { ...state, players };
+  const player = state.activePlayer;
+  const income = playerOwnedProperties(state, player).length * 1000;
+  return {
+    ...state,
+    players: {
+      ...state.players,
+      [player]: { gold: state.players[player].gold + income, income },
+    },
+  };
 }
 
 export function produceUnit(state: GameState, facility: Position, kind: UnitKind): GameResult {
@@ -195,5 +209,10 @@ export function endTurn(state: GameState): GameState {
     const stats = unitStats[unit.kind];
     return { ...unit, hasMoved: false, hasActed: false, fuel: stats.fuel, ammo: stats.ammo, hp: Math.min(100, unit.hp + 20) };
   });
-  return withEvaluatedWinner(collectIncome({ ...progressed, activePlayer, turn: state.turn + 1, units: refreshed }), [], actor);
+  return withEvaluatedWinner(collectIncome({
+    ...progressed,
+    activePlayer,
+    turn: state.turn + (activePlayer === 'red' ? 1 : 0),
+    units: refreshed,
+  }), [], actor);
 }

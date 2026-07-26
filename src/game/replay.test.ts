@@ -79,7 +79,7 @@ describe('replay summaries', () => {
     const summary = summarizeReplay(duel(1, 100), commands, 'skirmish', 'normal');
     expect(summary.ok && summary.value).toMatchObject({
       winner: 'blue',
-      turns: 2,
+      turns: 1,
       kills: { red: 0, blue: 1 },
     });
   });

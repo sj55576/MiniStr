@@ -23,6 +23,14 @@ describe('Phase 3 rule-based CPU', () => {
     expect(chooseCpuAction(state)).toEqual({ type: 'attack', unitId: 'tank', targetId: 'infantry' });
   });
 
+  it('never chooses a zero-damage attack, even on hard difficulty', () => {
+    const state = stateWith(createGameState(createBoard(2, 1, { kind: 'sea' })), { units: [
+      { id: 'transport', kind: 'landingShip', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 1, hasMoved: false, hasActed: false },
+      { id: 'target', kind: 'destroyer', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ] });
+    expect(chooseCpuAction(state, 'hard')).not.toMatchObject({ type: 'attack' });
+  });
+
   it('produces toward the 2 infantry : 2 tanks : 1 artillery mix', () => {
     const board = createBoard(1, 1, { kind: 'factory', owner: 'red' });
     const state = stateWith(createGameState(board), { players: { red: { gold: 7000, income: 0 }, blue: { gold: 0, income: 0 } }, units: [

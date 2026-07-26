@@ -30,6 +30,9 @@ export interface CombatForecast {
 export function forecastCombat(state: GameState, attacker: Unit, defender: Unit): GameResult<CombatForecast> {
   if (!isDeployedUnit(attacker) || !isDeployedUnit(defender)) return { ok: false, error: 'Embarked units cannot fight' };
   if (attacker.owner === defender.owner) return { ok: false, error: 'Cannot attack a friendly unit' };
+  const attackerAmmo = attacker.ammo ?? unitStats[attacker.kind].ammo;
+  if (attackerAmmo <= 0) return { ok: false, error: 'Unit is out of ammunition' };
+  if (unitStats[attacker.kind].attack <= 0) return { ok: false, error: 'Unit has no attack capability' };
   const distance = manhattanDistance(attacker.position, defender.position);
   const attackRange = unitStats[attacker.kind].range;
   if (distance < attackRange[0] || distance > attackRange[1]) return { ok: false, error: 'Target is out of range' };

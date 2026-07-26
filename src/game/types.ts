@@ -44,6 +44,7 @@ export interface GameState {
   units: Unit[];
   players: Record<PlayerId, PlayerState>;
   activePlayer: PlayerId;
+  /** Completed full rounds, starting at 1 and advancing when blue hands play back to red. */
   turn: number;
   winner?: PlayerId;
   /** Optional for backwards-compatible save/replay loading. */

@@ -27,17 +27,24 @@ export function getConditionProgress(state: GameState, condition: VictoryConditi
     }
     case 'captureCapital': {
       const scenario = scenarioById(state.scenarioId);
-      const ownedCapitals = state.board.terrain.flat().filter(tile => tile.kind === 'capital' && tile.owner === player).length;
-      const initialOwnedCapitals = scenario?.board.terrain.flat()
-        .filter(tile => tile.kind === 'capital' && tile.owner === player).length;
-      const enemyCapitals = state.board.terrain.flat()
-        .filter(tile => tile.kind === 'capital' && tile.owner === otherPlayer(player)).length;
-      // A scenario capital is captured when the player owns more capitals than at
-      // deployment. This preserves the existing neutral-capital behavior as well as
-      // the usual enemy-HQ capture. Legacy states fall back to the old board-only rule.
-      current = initialOwnedCapitals === undefined
-        ? (enemyCapitals === 0 && ownedCapitals > 0 ? 1 : 0)
-        : (ownedCapitals > initialOwnedCapitals ? 1 : 0);
+      if (scenario) {
+        const enemy = otherPlayer(player);
+        // A known scenario establishes which HQs belong to the opponent. Capturing
+        // a neutral capital must not complete this objective, even if it increases
+        // the player's total number of capitals.
+        const capturedEnemyCapital = scenario.board.terrain.some((row, y) => row.some((initialTile, x) =>
+          initialTile.kind === 'capital'
+          && initialTile.owner === enemy
+          && state.board.terrain[y]?.[x]?.kind === 'capital'
+          && state.board.terrain[y]?.[x]?.owner === player));
+        current = capturedEnemyCapital ? 1 : 0;
+      } else {
+        const ownedCapitals = state.board.terrain.flat().filter(tile => tile.kind === 'capital' && tile.owner === player).length;
+        const enemyCapitals = state.board.terrain.flat()
+          .filter(tile => tile.kind === 'capital' && tile.owner === otherPlayer(player)).length;
+        // Legacy saves without a resolvable scenario keep their board-only rule.
+        current = enemyCapitals === 0 && ownedCapitals > 0 ? 1 : 0;
+      }
       target = 1;
       break;
     }
