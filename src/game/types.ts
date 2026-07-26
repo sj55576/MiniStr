@@ -53,7 +53,7 @@ export interface GameState {
   scores?: Partial<Record<PlayerId, number>>;
   /** Consecutive completed turns for each hold-condition key. */
   objectiveHoldTurns?: Partial<Record<PlayerId, Record<string, number>>>;
-  /** State for the deterministic LCG; commands must return its next value. */
+  /** State for the deterministic LCG consumed by commands that resolve random outcomes. */
   rngSeed: number;
   nextUnitId: number;
 }
@@ -63,3 +63,4 @@ export type GameResult<T = GameState> =
   | { ok: false; error: string };
 
 export const otherPlayer = (player: PlayerId): PlayerId => player === 'red' ? 'blue' : 'red';
+
