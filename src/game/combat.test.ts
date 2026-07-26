@@ -26,7 +26,7 @@ describe('Type-effectiveness combat matrix', () => {
     const vsArmor = forecastCombat(state,
       { id: 'a', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
       { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
-    expect(vsSoft.ok && vsSoft.value.defenderDamage).toBeGreaterThan(vsArmor.ok ? vsArmor.value.defenderDamage : Infinity);
+    expect(vsSoft.ok && vsSoft.value.damageToDefender).toBeGreaterThan(vsArmor.ok ? vsArmor.value.damageToDefender : Infinity);
   });
 
   it('fighter deals more damage to air targets than to armor targets', () => {
@@ -38,7 +38,7 @@ describe('Type-effectiveness combat matrix', () => {
     const vsArmor = forecastCombat(state,
       { id: 'a', kind: 'fighter', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
       { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
-    expect(vsAir.ok && vsAir.value.defenderDamage).toBeGreaterThan(vsArmor.ok ? vsArmor.value.defenderDamage : Infinity);
+    expect(vsAir.ok && vsAir.value.damageToDefender).toBeGreaterThan(vsArmor.ok ? vsArmor.value.damageToDefender : Infinity);
   });
 
   it('bomber deals bonus damage to armor compared to tank vs the same armor target', () => {
@@ -52,10 +52,10 @@ describe('Type-effectiveness combat matrix', () => {
       { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
     // bomber (attack 95, multiplier 1.25) should out-damage tank (attack 75, multiplier 1.0) vs the same armor target,
     // by more than the raw attack-stat gap alone would explain.
-    expect(bomberVsArmor.ok && tankVsArmor.ok && bomberVsArmor.value.defenderDamage).toBeGreaterThan(tankVsArmor.ok ? tankVsArmor.value.defenderDamage : 0);
+    expect(bomberVsArmor.ok && tankVsArmor.ok && bomberVsArmor.value.damageToDefender).toBeGreaterThan(tankVsArmor.ok ? tankVsArmor.value.damageToDefender : 0);
     // Directly confirm the multiplier's effect on raw damage relative to unmultiplied attack stats.
-    const bomberRawEquivalent = bomberVsArmor.ok ? bomberVsArmor.value.defenderDamage / 1.25 : 0;
-    const tankRawEquivalent = tankVsArmor.ok ? tankVsArmor.value.defenderDamage / 1.0 : 0;
+    const bomberRawEquivalent = bomberVsArmor.ok ? bomberVsArmor.value.damageToDefender / 1.25 : 0;
+    const tankRawEquivalent = tankVsArmor.ok ? tankVsArmor.value.damageToDefender / 1.0 : 0;
     expect(bomberRawEquivalent).toBeGreaterThan(0);
     expect(tankRawEquivalent).toBeGreaterThan(0);
   });
@@ -69,7 +69,7 @@ describe('Counterattack ammunition', () => {
       { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
       { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, ammo: 1, hasMoved: false, hasActed: false });
     expect(result.ok && result.value.canCounter).toBe(true);
-    expect(result.ok && result.value.counterDamage).toBeGreaterThan(0);
+    expect(result.ok && result.value.damageToAttacker).toBeGreaterThan(0);
   });
 
   it('does not allow a defender with zero ammunition to counterattack', () => {
@@ -77,6 +77,7 @@ describe('Counterattack ammunition', () => {
     const result = forecastCombat(state,
       { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
       { id: 'd', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, ammo: 0, hasMoved: false, hasActed: false });
-    expect(result.ok && result.value).toMatchObject({ canCounter: false, counterDamage: 0 });
+    expect(result.ok && result.value).toMatchObject({ canCounter: false, damageToAttacker: 0 });
   });
 });
+
