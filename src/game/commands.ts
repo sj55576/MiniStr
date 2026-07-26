@@ -1,7 +1,8 @@
 import { movementCost, positionKey, samePosition, terrainAt } from './terrain';
 import { playerOwnedProperties, unitAt } from './state';
 import { unitStats } from './units';
-import { forecastCombat } from './combat';
+import { applyDamageVariance, forecastCombat } from './combat';
+import { nextRandom } from './rng';
 import { canProduceUnit, isPropertyTerrainKind } from './facilities';
 import { visibleEnemies, visiblePositions } from './fog';
 import { scenarioById } from './maps';
@@ -142,14 +143,27 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
   if (defender.owner !== attacker.owner && !visibleEnemies(state, attacker.owner).some(unit => unit.id === defender.id)) return fail('Target is not visible');
   const forecast = forecastCombat(state, attacker, defender);
   if (!forecast.ok) return forecast;
+  const attackRoll = nextRandom(state.rngSeed);
+  const damageToDefender = applyDamageVariance(forecast.value.damageToDefender, attackRoll.value);
+  // Counterattack damage must use the defender's actual post-roll HP.  A unit
+  // that the expected forecast destroys can still survive a low damage roll.
+  const counterForecast = defender.hp > damageToDefender
+    ? forecastCombat(state, { ...defender, hp: defender.hp - damageToDefender }, attacker)
+    : undefined;
+  const canCounter = counterForecast?.ok ?? false;
+  const counterRoll = canCounter ? nextRandom(attackRoll.seed) : undefined;
+  const damageToAttacker = counterRoll && counterForecast?.ok
+    ? applyDamageVariance(counterForecast.value.damageToDefender, counterRoll.value)
+    : 0;
+  const rngSeed = counterRoll?.seed ?? attackRoll.seed;
   const damagedUnits = state.units.map(unit => {
-    if (unit.id === attacker.id) return { ...unit, hp: Math.max(0, unit.hp - forecast.value.counterDamage), ammo: (unit.ammo ?? unitStats[unit.kind].ammo) - 1, hasActed: true };
-    if (unit.id === defender.id) return { ...unit, hp: Math.max(0, unit.hp - forecast.value.defenderDamage), ammo: forecast.value.canCounter ? (unit.ammo ?? unitStats[unit.kind].ammo) - 1 : unit.ammo };
+    if (unit.id === attacker.id) return { ...unit, hp: Math.max(0, unit.hp - damageToAttacker), ammo: (unit.ammo ?? unitStats[unit.kind].ammo) - 1, hasActed: true };
+    if (unit.id === defender.id) return { ...unit, hp: Math.max(0, unit.hp - damageToDefender), ammo: canCounter ? (unit.ammo ?? unitStats[unit.kind].ammo) - 1 : unit.ammo };
     return unit;
   });
   const destroyedUnitIds = new Set(damagedUnits.filter(unit => unit.hp <= 0).map(unit => unit.id));
   const nextUnits = damagedUnits.filter(unit => unit.hp > 0 && (!unit.embarkedIn || !destroyedUnitIds.has(unit.embarkedIn)));
-  const next = updateScenarioScores(state, { ...state, units: nextUnits });
+  const next = updateScenarioScores(state, { ...state, units: nextUnits, rngSeed });
   return succeed(withEvaluatedWinner(next, [{ type: 'eliminate' }]));
 }
 
