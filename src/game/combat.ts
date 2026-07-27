@@ -1,19 +1,8 @@
 import { defenseStars, manhattanDistance, terrainAt } from './terrain';
-import { unitCategory, unitStats } from './units';
-import type { UnitCategory } from './units';
-import { isDeployedUnit, type GameResult, type GameState, type Unit, type UnitKind } from './types';
+import { damageMultiplier, unitCategory, unitStats } from './units';
+import { isDeployedUnit, type GameResult, type GameState, type Unit } from './types';
 
-export const damageMultiplier: Record<UnitKind, Record<UnitCategory, number>> = {
-  infantry: { soft: 1.0, armor: 0.5, air: 0.35, sea: 0.3 },
-  recon: { soft: 1.1, armor: 0.6, air: 0.4, sea: 0.3 },
-  tank: { soft: 1.0, armor: 1.0, air: 0.35, sea: 0.6 },
-  artillery: { soft: 1.15, armor: 1.0, air: 0.5, sea: 0.9 },
-  rocket: { soft: 1.2, armor: 1.05, air: 0.5, sea: 1.0 },
-  fighter: { soft: 0.5, armor: 0.4, air: 1.4, sea: 0.5 },
-  bomber: { soft: 1.25, armor: 1.25, air: 0.4, sea: 1.25 },
-  destroyer: { soft: 0.7, armor: 0.7, air: 1.1, sea: 1.0 },
-  landingShip: { soft: 0, armor: 0, air: 0, sea: 0 },
-};
+export { damageMultiplier };
 
 export interface CombatForecast {
   /** Expected damage before the ±10% combat variance is applied. */
@@ -64,4 +53,3 @@ export function forecastCombat(state: GameState, attacker: Unit, defender: Unit)
   const damageToAttacker = Math.max(0, Math.round(counterRaw * (1 - counterReduction / 100)));
   return { ok: true, value: { damageToDefender, damageToAttacker, canCounter } };
 }
-

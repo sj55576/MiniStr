@@ -1,29 +1,90 @@
-import type { UnitKind } from './types';
-
 export interface UnitStats { cost: number; movement: number; attack: number; defense: number; capturePower: number; range: readonly [number, number]; fuel: number; ammo: number; vision: number }
 
 export type UnitCategory = 'soft' | 'armor' | 'air' | 'sea';
+export type MovementProfile = 'foot' | 'vehicle' | 'air' | 'sea';
+export type ProductionTerrain = 'factory' | 'port';
 
-export const unitCategory: Record<UnitKind, UnitCategory> = {
-  infantry: 'soft',
-  recon: 'soft',
-  tank: 'armor',
-  artillery: 'armor',
-  rocket: 'armor',
-  fighter: 'air',
-  bomber: 'air',
-  destroyer: 'sea',
-  landingShip: 'sea',
-};
+export interface UnitDefinition {
+  category: UnitCategory;
+  movementProfile: MovementProfile;
+  productionTerrain: ProductionTerrain;
+  /** This unit may be carried by a transport. */
+  embarkable?: true;
+  /** Number of embarkable units this unit can carry. */
+  transportCapacity?: number;
+  stats: UnitStats;
+  effectiveness: Record<UnitCategory, number>;
+}
 
-export const unitStats: Record<UnitKind, UnitStats> = {
-  infantry: { cost: 1000, movement: 3, attack: 55, defense: 10, capturePower: 10, range: [1, 1], fuel: 99, ammo: 9, vision: 2 },
-  tank: { cost: 7000, movement: 5, attack: 75, defense: 35, capturePower: 0, range: [1, 1], fuel: 70, ammo: 6, vision: 3 },
-  artillery: { cost: 6000, movement: 4, attack: 70, defense: 20, capturePower: 0, range: [2, 3], fuel: 50, ammo: 6, vision: 3 },
-  fighter: { cost: 20000, movement: 8, attack: 85, defense: 15, capturePower: 0, range: [1, 1], fuel: 60, ammo: 6, vision: 5 },
-  bomber: { cost: 22000, movement: 7, attack: 95, defense: 10, capturePower: 0, range: [1, 1], fuel: 70, ammo: 6, vision: 4 },
-  destroyer: { cost: 12000, movement: 6, attack: 70, defense: 30, capturePower: 0, range: [1, 1], fuel: 99, ammo: 9, vision: 4 },
-  landingShip: { cost: 7000, movement: 5, attack: 0, defense: 20, capturePower: 0, range: [1, 1], fuel: 99, ammo: 0, vision: 3 },
-  recon: { cost: 4000, movement: 7, attack: 35, defense: 15, capturePower: 0, range: [1, 1], fuel: 80, ammo: 6, vision: 5 },
-  rocket: { cost: 12000, movement: 5, attack: 90, defense: 20, capturePower: 0, range: [3, 5], fuel: 50, ammo: 5, vision: 3 },
-};
+/**
+ * Canonical unit registry.  New units are declared here once; validation,
+ * production, terrain movement, statistics, categories, and combat tables
+ * are derived from it so they cannot silently fall out of sync.
+ */
+export const unitDefinitions = {
+  infantry: {
+    category: 'soft', movementProfile: 'foot', productionTerrain: 'factory', embarkable: true,
+    stats: { cost: 1000, movement: 3, attack: 55, defense: 10, capturePower: 10, range: [1, 1], fuel: 99, ammo: 9, vision: 2 },
+    effectiveness: { soft: 1.0, armor: 0.5, air: 0.35, sea: 0.3 },
+  },
+  recon: {
+    category: 'soft', movementProfile: 'vehicle', productionTerrain: 'factory',
+    stats: { cost: 4000, movement: 7, attack: 35, defense: 15, capturePower: 0, range: [1, 1], fuel: 80, ammo: 6, vision: 5 },
+    effectiveness: { soft: 1.1, armor: 0.6, air: 0.4, sea: 0.3 },
+  },
+  tank: {
+    category: 'armor', movementProfile: 'vehicle', productionTerrain: 'factory',
+    stats: { cost: 7000, movement: 5, attack: 75, defense: 35, capturePower: 0, range: [1, 1], fuel: 70, ammo: 6, vision: 3 },
+    effectiveness: { soft: 1.0, armor: 1.0, air: 0.35, sea: 0.6 },
+  },
+  artillery: {
+    category: 'armor', movementProfile: 'vehicle', productionTerrain: 'factory',
+    stats: { cost: 6000, movement: 4, attack: 70, defense: 20, capturePower: 0, range: [2, 3], fuel: 50, ammo: 6, vision: 3 },
+    effectiveness: { soft: 1.15, armor: 1.0, air: 0.5, sea: 0.9 },
+  },
+  rocket: {
+    category: 'armor', movementProfile: 'vehicle', productionTerrain: 'factory',
+    stats: { cost: 12000, movement: 5, attack: 90, defense: 20, capturePower: 0, range: [3, 5], fuel: 50, ammo: 5, vision: 3 },
+    effectiveness: { soft: 1.2, armor: 1.05, air: 0.5, sea: 1.0 },
+  },
+  antiAir: {
+    category: 'armor', movementProfile: 'vehicle', productionTerrain: 'factory',
+    stats: { cost: 8000, movement: 3, attack: 65, defense: 25, capturePower: 0, range: [1, 2], fuel: 60, ammo: 6, vision: 3 },
+    effectiveness: { soft: 0.45, armor: 0.4, air: 1.8, sea: 0.3 },
+  },
+  fighter: {
+    category: 'air', movementProfile: 'air', productionTerrain: 'factory',
+    stats: { cost: 20000, movement: 8, attack: 85, defense: 15, capturePower: 0, range: [1, 1], fuel: 60, ammo: 6, vision: 5 },
+    effectiveness: { soft: 0.5, armor: 0.4, air: 1.4, sea: 0.5 },
+  },
+  bomber: {
+    category: 'air', movementProfile: 'air', productionTerrain: 'factory',
+    stats: { cost: 22000, movement: 7, attack: 95, defense: 10, capturePower: 0, range: [1, 1], fuel: 70, ammo: 6, vision: 4 },
+    effectiveness: { soft: 1.25, armor: 1.25, air: 0.4, sea: 1.25 },
+  },
+  destroyer: {
+    category: 'sea', movementProfile: 'sea', productionTerrain: 'port',
+    stats: { cost: 12000, movement: 6, attack: 70, defense: 30, capturePower: 0, range: [1, 1], fuel: 99, ammo: 9, vision: 4 },
+    effectiveness: { soft: 0.7, armor: 0.7, air: 1.1, sea: 1.0 },
+  },
+  landingShip: {
+    category: 'sea', movementProfile: 'sea', productionTerrain: 'port', transportCapacity: 1,
+    stats: { cost: 7000, movement: 5, attack: 0, defense: 20, capturePower: 0, range: [1, 1], fuel: 99, ammo: 0, vision: 3 },
+    effectiveness: { soft: 0, armor: 0, air: 0, sea: 0 },
+  },
+} as const satisfies Record<string, UnitDefinition>;
+
+import type { UnitKind } from './types';
+
+export const unitKinds = Object.keys(unitDefinitions) as UnitKind[];
+export const unitKindSet: ReadonlySet<string> = new Set(unitKinds);
+
+const valuesByKind = <Value>(select: (definition: UnitDefinition) => Value): Record<UnitKind, Value> =>
+  Object.fromEntries(unitKinds.map(kind => [kind, select(unitDefinitions[kind])])) as Record<UnitKind, Value>;
+
+export const unitCategory = valuesByKind(definition => definition.category);
+export const unitStats = valuesByKind(definition => definition.stats);
+export const damageMultiplier = valuesByKind(definition => definition.effectiveness);
+
+export function isEmbarkableUnit(kind: UnitKind): boolean { return (unitDefinitions[kind] as UnitDefinition).embarkable === true; }
+export function transportCapacity(kind: UnitKind): number { return (unitDefinitions[kind] as UnitDefinition).transportCapacity ?? 0; }

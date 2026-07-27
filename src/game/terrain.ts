@@ -1,13 +1,32 @@
 import type { Board, Position, Terrain, TerrainKind, UnitKind } from './types';
+import { unitDefinitions, unitKinds, type MovementProfile } from './units';
 
-const land = { infantry: 1, tank: 1, artillery: 1, fighter: 1, bomber: 1, destroyer: Infinity, landingShip: Infinity, recon: 1, rocket: 1 } as const;
+const movementByProfile: Record<TerrainKind, Record<MovementProfile, number>> = {
+  plain: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
+  forest: { foot: 1, vehicle: 2, air: 1, sea: Infinity },
+  road: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
+  mountain: { foot: 2, vehicle: Infinity, air: 1, sea: Infinity },
+  sea: { foot: Infinity, vehicle: Infinity, air: 1, sea: 1 },
+  city: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
+  factory: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
+  port: { foot: 1, vehicle: 1, air: 1, sea: 1 },
+  capital: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
+};
+
+const unitMovement = (terrain: TerrainKind): Record<UnitKind, number> =>
+  Object.fromEntries(unitKinds.map(kind => [kind, movementByProfile[terrain][unitDefinitions[kind].movementProfile]])) as Record<UnitKind, number>;
+
 export const terrainRules: Record<TerrainKind, { movement: Record<UnitKind, number>; defense: number }> = {
-  plain: { movement: land, defense: 1 }, forest: { movement: { ...land, tank: 2, artillery: 2, recon: 2, rocket: 2 }, defense: 2 }, road: { movement: land, defense: 0 },
-  mountain: { movement: { ...land, infantry: 2, recon: 2, tank: Infinity, artillery: Infinity, rocket: Infinity }, defense: 4 },
-  sea: { movement: { infantry: Infinity, tank: Infinity, artillery: Infinity, recon: Infinity, rocket: Infinity, fighter: 1, bomber: 1, destroyer: 1, landingShip: 1 }, defense: 0 },
-  city: { movement: land, defense: 3 }, factory: { movement: land, defense: 3 },
-  // A port is a coastal facility: infantry can capture it and destroyers can dock there.
-  port: { movement: { ...land, destroyer: 1, landingShip: 1 }, defense: 3 }, capital: { movement: land, defense: 4 },
+  plain: { movement: unitMovement('plain'), defense: 1 },
+  forest: { movement: unitMovement('forest'), defense: 2 },
+  road: { movement: unitMovement('road'), defense: 0 },
+  mountain: { movement: unitMovement('mountain'), defense: 4 },
+  sea: { movement: unitMovement('sea'), defense: 0 },
+  city: { movement: unitMovement('city'), defense: 3 },
+  factory: { movement: unitMovement('factory'), defense: 3 },
+  // A port is a coastal facility: infantry can capture it and ships can dock there.
+  port: { movement: unitMovement('port'), defense: 3 },
+  capital: { movement: unitMovement('capital'), defense: 4 },
 };
 
 export const positionKey = ({ x, y }: Position): string => `${x},${y}`;
