@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyGameCommand, AUTO_SAVE_KEY, createBoard, createGameState, loadGame, MAX_SAVE_BYTES,
   parseSavedGame, replayCommands, saveGame, SAVE_SCHEMA_VERSION, type GameCommand,
-  createScenarioInitialState, scenarioById, type GameState, type StorageLike, unitStats,
+  createScenarioInitialState, saveCustomScenario, scenarioById, type GameState, type StorageLike, unitStats,
 } from './index';
 
 function withUnit(): GameState {
@@ -67,6 +67,25 @@ describe('versioned save persistence', () => {
     expect(loaded?.ok).toBe(true);
     expect(loaded?.ok && loaded.value.schemaVersion).toBe(SAVE_SCHEMA_VERSION);
     expect(loaded?.ok && loaded.value.gameState).toEqual(gameState);
+  });
+
+  it('round-trips a valid saved game containing an anti-air unit', () => {
+    const storage = new MemoryStorage();
+    const scenario = saveCustomScenario(storage, {
+      id: 'anti-air-save-round-trip', name: '対空セーブ検証', briefing: '', startingGold: 0,
+      board: { width: 2, height: 1, cells: [] },
+      initialUnits: [{ kind: 'antiAir', owner: 'red', x: 0, y: 0 }, { kind: 'fighter', owner: 'blue', x: 1, y: 0 }],
+      victoryConditions: [{ type: 'eliminate' }], defeatConditions: [{ type: 'eliminate' }],
+    });
+    expect(scenario.ok).toBe(true);
+    if (!scenario.ok) return;
+    const initialState = createScenarioInitialState(scenario.value);
+    expect(saveGame(storage, AUTO_SAVE_KEY, {
+      mapId: scenario.value.id, difficulty: 'normal', initialState, commands: [], gameState: initialState,
+    }).ok).toBe(true);
+    const loaded = loadGame(storage);
+    expect(loaded?.ok && loaded.value.initialState.units).toEqual(initialState.units);
+    expect(loaded?.ok && loaded.value.gameState.units.find(unit => unit.kind === 'antiAir')).toMatchObject({ id: 'r1', kind: 'antiAir' });
   });
 
   it('preserves a valid campaign battle marker and rejects a mismatched marker', () => {
