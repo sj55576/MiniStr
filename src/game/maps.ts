@@ -1,7 +1,7 @@
 import { isPropertyTerrainKind } from './facilities';
 import { createBoard, createGameState } from './state';
-import { unitStats } from './units';
-import type { Board, GameResult, GameState, PlayerId, Position, TerrainKind, UnitKind } from './types';
+import { unitKindSet, unitStats } from './units';
+import { terrainKindSet, type Board, type GameResult, type GameState, type PlayerId, type Position, type TerrainKind, type UnitKind } from './types';
 
 export interface InitialUnit { kind: UnitKind; owner: PlayerId; x: number; y: number }
 export interface MapDefinition { id: string; name: string; board: Board; startingGold: number; initialUnits: readonly InitialUnit[] }
@@ -43,8 +43,6 @@ export const CUSTOM_SCENARIOS_SCHEMA_VERSION = 1 as const;
 export const MAX_CUSTOM_SCENARIO_BYTES = 1_000_000;
 export const MAX_CUSTOM_SCENARIOS = 32;
 
-const terrainKinds = new Set<TerrainKind>(['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'port', 'capital']);
-const unitKinds = new Set<UnitKind>(['infantry', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'landingShip', 'recon', 'rocket']);
 const playerIds = new Set<PlayerId>(['red', 'blue']);
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isPositiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
@@ -88,7 +86,7 @@ function parseScenario(value: unknown, ids: Set<string>): GameResult<ScenarioDef
   const width = value.board.width;
   const height = value.board.height;
   const fill = value.board.fill === undefined ? 'plain' : value.board.fill;
-  if (typeof fill !== 'string' || !terrainKinds.has(fill as TerrainKind)) return { ok: false, error: `シナリオ「${value.id}」の既定地形が不正です。` };
+  if (typeof fill !== 'string' || !terrainKindSet.has(fill)) return { ok: false, error: `シナリオ「${value.id}」の既定地形が不正です。` };
   if (value.board.cells.length > width * height) return { ok: false, error: `シナリオ「${value.id}」の地形セルが多すぎます。` };
   const board = createBoard(width, height, { kind: fill as TerrainKind });
   const occupiedCells = new Set<string>();
@@ -96,7 +94,7 @@ function parseScenario(value: unknown, ids: Set<string>): GameResult<ScenarioDef
     if (!Array.isArray(cell) || (cell.length !== 3 && cell.length !== 4)) return { ok: false, error: `シナリオ「${value.id}」の地形セルが不正です。` };
     const [x, y, terrain, owner] = cell;
     if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || x < 0 || y < 0 || x >= width || y >= height
-      || typeof terrain !== 'string' || !terrainKinds.has(terrain as TerrainKind)
+      || typeof terrain !== 'string' || !terrainKindSet.has(terrain)
       || (owner !== undefined && (typeof owner !== 'string' || !playerIds.has(owner as PlayerId)))) return { ok: false, error: `シナリオ「${value.id}」の地形セルが不正です。` };
     const key = `${x},${y}`;
     if (occupiedCells.has(key)) return { ok: false, error: `シナリオ「${value.id}」に重複した地形セルがあります。` };
@@ -110,7 +108,7 @@ function parseScenario(value: unknown, ids: Set<string>): GameResult<ScenarioDef
     if (!isRecord(unit)) return { ok: false, error: `シナリオ「${value.id}」の初期ユニットが不正です。` };
     const x = unit.x;
     const y = unit.y;
-    if (typeof unit.kind !== 'string' || !unitKinds.has(unit.kind as UnitKind)
+    if (typeof unit.kind !== 'string' || !unitKindSet.has(unit.kind)
       || typeof unit.owner !== 'string' || !playerIds.has(unit.owner as PlayerId)
       || !isNonNegativeInteger(x) || !isNonNegativeInteger(y) || x >= width || y >= height) return { ok: false, error: `シナリオ「${value.id}」の初期ユニットが不正です。` };
     const key = `${x},${y}`;
