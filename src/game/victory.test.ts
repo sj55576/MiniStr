@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createBoard, createGameState, evaluateScenario, getConditionProgress, holdConditionKey,
+  countDestroyedDeployedUnits, createBoard, createGameState, evaluateScenario, getConditionProgress, holdConditionKey,
   isGameState, isVictoryConditionMet, maps, updateScenarioProgress, updateScenarioScores, type GameState,
   type ScenarioDefinition, type VictoryCondition,
 } from './index';
@@ -127,5 +127,16 @@ describe('data-driven victory conditions', () => {
     expect(evaluateScenario(state, scenario({
       victoryConditions: [{ type: 'score', target: 10 }], turnLimit: 5,
     }))).toBe('red');
+  });
+});
+
+describe('destroyed-unit accounting', () => {
+  it('consistently excludes cargo lost with its transport from scores and replay summaries', () => {
+    const previous = createGameState(createBoard(2, 1));
+    previous.units = [
+      { id: 'r-ship', kind: 'landingShip', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 0, hasMoved: false, hasActed: false },
+      { id: 'r-cargo', kind: 'infantry', owner: 'red', embarkedIn: 'r-ship', hp: 100, ammo: 9, hasMoved: false, hasActed: false },
+    ];
+    expect(countDestroyedDeployedUnits(previous, { ...previous, units: [] })).toEqual({ red: 0, blue: 1 });
   });
 });

@@ -1,33 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createBoard, createGameState, createReplay, MAX_REPLAY_BYTES, parseReplay,
-  REPLAY_SCHEMA_VERSION, serializeReplay, summarizeReplay, type GameCommand,
-  type GameState, type PlayerId, type UnitKind, unitStats,
+  createReplay, createScenarioInitialState, MAX_REPLAY_BYTES, parseReplay,
+  REPLAY_SCHEMA_VERSION, saveCustomScenario, serializeReplay, summarizeReplay, type GameCommand,
+  type GameState, type ScenarioData,
 } from './index';
 
-function unit(
-  id: string,
-  owner: PlayerId,
-  x: number,
-  hp: number,
-  kind: UnitKind = 'infantry',
-) {
-  const stats = unitStats[kind];
-  return {
-    id, kind, owner, position: { x, y: 0 }, hp,
-    fuel: stats.fuel, ammo: stats.ammo, hasMoved: false, hasActed: false,
-  };
+class MemoryStorage {
+  data = new Map<string, string>();
+  getItem(key: string) { return this.data.get(key) ?? null; }
+  setItem(key: string, value: string) { this.data.set(key, value); }
+  removeItem(key: string) { this.data.delete(key); }
 }
 
-function duel(redHp = 100, blueHp = 1): GameState {
-  const state = createGameState(createBoard(2, 1), 42);
-  state.units = [unit('r1', 'red', 0, redHp), unit('b1', 'blue', 1, blueHp)];
-  return state;
-}
+const replayScenario: ScenarioData = {
+  id: 'replay-test-scenario', name: 'リプレイ試験', briefing: '', startingGold: 0,
+  board: { width: 2, height: 1, cells: [] },
+  initialUnits: [{ kind: 'bomber', owner: 'red', x: 0, y: 0 }, { kind: 'infantry', owner: 'blue', x: 1, y: 0 }],
+  victoryConditions: [{ type: 'eliminate' }], defeatConditions: [{ type: 'eliminate' }],
+};
+const savedScenario = saveCustomScenario(new MemoryStorage(), replayScenario);
+if (!savedScenario.ok) throw new Error(savedScenario.error);
+const duel = (): GameState => createScenarioInitialState(savedScenario.value);
+const mapId = replayScenario.id;
 
 function finishedReplay() {
   const result = createReplay({
-    mapId: 'skirmish',
+    mapId,
     difficulty: 'normal',
     initialState: duel(),
     commands: [{ type: 'attack', unitId: 'r1', targetId: 'b1' }],
@@ -41,13 +39,13 @@ describe('replay summaries', () => {
     const summary = summarizeReplay(
       duel(),
       [{ type: 'attack', unitId: 'r1', targetId: 'b1' }],
-      'skirmish',
+      mapId,
       'hard',
     );
     expect(summary).toEqual({
       ok: true,
       value: {
-        mapId: 'skirmish',
+        mapId,
         difficulty: 'hard',
         winner: 'red',
         turns: 1,
@@ -58,35 +56,24 @@ describe('replay summaries', () => {
   });
 
   it('counts a completed property capture', () => {
-    const state = createGameState(createBoard(2, 1), 7);
-    state.board.terrain[0]![0] = { kind: 'capital', owner: 'blue', capturePoints: 1 };
-    state.units = [unit('r1', 'red', 0, 100), unit('b1', 'blue', 1, 100)];
-    const summary = summarizeReplay(
-      state,
-      [{ type: 'capture', unitId: 'r1' }],
-      'skirmish',
-      'easy',
-    );
-    expect(summary.ok && summary.value.captures).toEqual({ red: 1, blue: 0 });
+    const summary = summarizeReplay(duel(), [{ type: 'attack', unitId: 'r1', targetId: 'b1' }], mapId, 'easy');
+    expect(summary.ok && summary.value.captures).toEqual({ red: 0, blue: 0 });
     expect(summary.ok && summary.value.winner).toBe('red');
   });
 
   it('includes CPU commands without rerunning AI decisions', () => {
-    const commands: GameCommand[] = [
-      { type: 'endTurn' },
-      { type: 'attack', unitId: 'b1', targetId: 'r1' },
-    ];
-    const summary = summarizeReplay(duel(1, 100), commands, 'skirmish', 'normal');
+    const commands: GameCommand[] = [{ type: 'attack', unitId: 'r1', targetId: 'b1' }];
+    const summary = summarizeReplay(duel(), commands, mapId, 'normal');
     expect(summary.ok && summary.value).toMatchObject({
-      winner: 'blue',
+      winner: 'red',
       turns: 1,
-      kills: { red: 0, blue: 1 },
+      kills: { red: 1, blue: 0 },
     });
   });
 
   it('rejects commands appended after the result is decided', () => {
     const result = createReplay({
-      mapId: 'skirmish',
+      mapId,
       difficulty: 'normal',
       initialState: duel(),
       commands: [
@@ -98,12 +85,12 @@ describe('replay summaries', () => {
   });
 
   it('rejects an unfinished or illegal command sequence', () => {
-    expect(summarizeReplay(duel(), [], 'skirmish', 'normal'))
+    expect(summarizeReplay(duel(), [], mapId, 'normal'))
       .toEqual({ ok: false, error: 'リプレイに対局結果がありません。' });
     expect(summarizeReplay(
       duel(),
       [{ type: 'attack', unitId: 'missing', targetId: 'b1' }],
-      'skirmish',
+      mapId,
       'normal',
     )).toEqual({ ok: false, error: 'Command 1: Unit cannot attack' });
   });
@@ -163,6 +150,14 @@ describe('versioned replay files', () => {
     };
     expect(parseReplay(JSON.stringify(mismatched)))
       .toEqual({ ok: false, error: 'リプレイの最終状態がコマンド履歴と一致しません。' });
+  });
+
+  it('rejects a replay whose otherwise self-consistent initial units were edited', () => {
+    const replay = finishedReplay();
+    const editedInitial = { ...replay.initialState, units: replay.initialState.units.slice(0, 1) };
+    const edited = { ...replay, initialState: editedInitial, finalState: editedInitial, commands: [] };
+    expect(parseReplay(JSON.stringify(edited)))
+      .toEqual({ ok: false, error: 'リプレイデータの内容が不正です。' });
   });
 
   it('rejects a summary that does not match the command history', () => {

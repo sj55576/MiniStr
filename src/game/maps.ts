@@ -1,6 +1,7 @@
 import { isPropertyTerrainKind } from './facilities';
-import { createBoard } from './state';
-import type { Board, GameResult, PlayerId, Position, TerrainKind, UnitKind } from './types';
+import { createBoard, createGameState } from './state';
+import { unitStats } from './units';
+import type { Board, GameResult, GameState, PlayerId, Position, TerrainKind, UnitKind } from './types';
 
 export interface InitialUnit { kind: UnitKind; owner: PlayerId; x: number; y: number }
 export interface MapDefinition { id: string; name: string; board: Board; startingGold: number; initialUnits: readonly InitialUnit[] }
@@ -35,6 +36,12 @@ export interface ScenarioCatalog {
   /** Set only when the requested source was rejected and the supplied fallback was used. */
   error?: string;
 }
+
+export interface ScenarioStorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
+export const CUSTOM_SCENARIOS_KEY = 'ministr.scenarios.custom';
+export const CUSTOM_SCENARIOS_SCHEMA_VERSION = 1 as const;
+export const MAX_CUSTOM_SCENARIO_BYTES = 1_000_000;
+export const MAX_CUSTOM_SCENARIOS = 32;
 
 const terrainKinds = new Set<TerrainKind>(['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'port', 'capital']);
 const unitKinds = new Set<UnitKind>(['infantry', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'landingShip', 'recon', 'rocket']);
@@ -207,4 +214,77 @@ const builtInCatalog = createScenarioCatalog(builtInScenarioData, fallbackLoad.v
 export const maps: readonly ScenarioDefinition[] = builtInCatalog.scenarios;
 /** Diagnostics for UI/telemetry; normal built-in data leaves this undefined. */
 export const scenarioLoadError: string | undefined = builtInCatalog.error;
-export const scenarioById = (id: string | undefined): ScenarioDefinition | undefined => maps.find(map => map.id === id);
+
+// Campaign uses the immutable built-in `maps`; regular play may include these persisted definitions.
+const customScenarios = new Map<string, ScenarioDefinition>();
+export function availableScenarios(): readonly ScenarioDefinition[] { return [...maps, ...customScenarios.values()]; }
+export function scenarioById(id: string | undefined): ScenarioDefinition | undefined {
+  return id === undefined ? undefined : maps.find(map => map.id === id) ?? customScenarios.get(id);
+}
+
+/** The only valid turn-one state for a scenario, shared by runtime and persistence checks. */
+export function createScenarioInitialState(scenario: ScenarioDefinition): GameState {
+  const base = createGameState(scenario.board);
+  const nextId: Record<PlayerId, number> = { red: 0, blue: 0 };
+  return {
+    ...base, scenarioId: scenario.id,
+    players: { red: { gold: scenario.startingGold, income: 0 }, blue: { gold: scenario.startingGold, income: 0 } },
+    units: scenario.initialUnits.map(unit => {
+      nextId[unit.owner] += 1;
+      const stats = unitStats[unit.kind];
+      return { id: `${unit.owner[0]}${nextId[unit.owner]}`, kind: unit.kind, owner: unit.owner, position: { x: unit.x, y: unit.y }, hp: 100, fuel: stats.fuel, ammo: stats.ammo, hasMoved: false, hasActed: false };
+    }),
+  };
+}
+
+export function scenarioDefinitionToData(scenario: ScenarioDefinition): ScenarioData {
+  const cells: [number, number, TerrainKind, PlayerId?][] = [];
+  for (let y = 0; y < scenario.board.height; y += 1) for (let x = 0; x < scenario.board.width; x += 1) {
+    const tile = scenario.board.terrain[y]![x]!;
+    if (tile.kind !== 'plain' || tile.owner !== undefined) cells.push([x, y, tile.kind, tile.owner]);
+  }
+  return { id: scenario.id, name: scenario.name, briefing: scenario.briefing, startingGold: scenario.startingGold,
+    board: { width: scenario.board.width, height: scenario.board.height, cells }, initialUnits: scenario.initialUnits.map(unit => ({ ...unit })),
+    victoryConditions: scenario.victoryConditions.map(condition => structuredClone(condition)), defeatConditions: scenario.defeatConditions.map(condition => structuredClone(condition)), turnLimit: scenario.turnLimit };
+}
+
+function replaceCustomScenarios(scenarios: readonly ScenarioDefinition[]): void {
+  customScenarios.clear();
+  for (const scenario of scenarios) customScenarios.set(scenario.id, scenario);
+}
+
+function parseCustomScenarioData(value: unknown): GameResult<readonly ScenarioDefinition[]> {
+  if (!isRecord(value) || value.schemaVersion !== CUSTOM_SCENARIOS_SCHEMA_VERSION || !Array.isArray(value.scenarios) || value.scenarios.length > MAX_CUSTOM_SCENARIOS)
+    return { ok: false, error: 'カスタムシナリオの内容が不正です。' };
+  const loaded = loadScenarioDefinitions(value.scenarios);
+  if (!loaded.ok || loaded.value.some(scenario => maps.some(builtIn => builtIn.id === scenario.id)))
+    return { ok: false, error: 'カスタムシナリオの内容が不正です。' };
+  return loaded;
+}
+
+export function loadCustomScenarios(storage: ScenarioStorageLike): GameResult<readonly ScenarioDefinition[]> {
+  let serialized: string | null;
+  try { serialized = storage.getItem(CUSTOM_SCENARIOS_KEY); } catch { return { ok: false, error: 'カスタムシナリオを読み込めませんでした。' }; }
+  if (serialized === null) { replaceCustomScenarios([]); return { ok: true, value: [] }; }
+  if (new TextEncoder().encode(serialized).byteLength > MAX_CUSTOM_SCENARIO_BYTES) return { ok: false, error: 'カスタムシナリオのデータが大きすぎます。' };
+  let parsed: unknown;
+  try { parsed = JSON.parse(serialized); } catch { return { ok: false, error: 'カスタムシナリオのデータが壊れています。' }; }
+  const loaded = parseCustomScenarioData(parsed);
+  if (!loaded.ok) { replaceCustomScenarios([]); return loaded; }
+  replaceCustomScenarios(loaded.value);
+  return { ok: true, value: [...loaded.value] };
+}
+
+export function saveCustomScenario(storage: ScenarioStorageLike, source: ScenarioData): GameResult<ScenarioDefinition> {
+  const loaded = loadScenarioDefinitions([source]);
+  if (!loaded.ok) return loaded;
+  const scenario = loaded.value[0]!;
+  if (maps.some(builtIn => builtIn.id === scenario.id)) return { ok: false, error: '組み込みシナリオのIDは上書きできません。' };
+  const next = new Map(customScenarios); next.set(scenario.id, scenario);
+  if (next.size > MAX_CUSTOM_SCENARIOS) return { ok: false, error: `カスタムシナリオは${MAX_CUSTOM_SCENARIOS}件までです。` };
+  const serialized = JSON.stringify({ schemaVersion: CUSTOM_SCENARIOS_SCHEMA_VERSION, scenarios: [...next.values()].map(scenarioDefinitionToData) });
+  if (new TextEncoder().encode(serialized).byteLength > MAX_CUSTOM_SCENARIO_BYTES) return { ok: false, error: 'カスタムシナリオのデータが大きすぎます。' };
+  try { storage.setItem(CUSTOM_SCENARIOS_KEY, serialized); } catch { return { ok: false, error: 'カスタムシナリオを書き込めませんでした。' }; }
+  replaceCustomScenarios([...next.values()]);
+  return { ok: true, value: scenario };
+}

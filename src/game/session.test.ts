@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyGameCommand, AUTO_SAVE_KEY, createBoard, createGameState, loadGame, MAX_SAVE_BYTES,
   parseSavedGame, replayCommands, saveGame, SAVE_SCHEMA_VERSION, type GameCommand,
-  type GameState, type StorageLike, unitStats,
+  createScenarioInitialState, scenarioById, type GameState, type StorageLike, unitStats,
 } from './index';
 
 function withUnit(): GameState {
@@ -25,6 +25,10 @@ function replay(initialState: GameState, commands: GameCommand[]): GameState {
   const result = replayCommands(initialState, commands);
   if (!result.ok) throw new Error(result.error);
   return result.value;
+}
+
+function canonicalSkirmish(): GameState {
+  return createScenarioInitialState(scenarioById('skirmish')!);
 }
 
 describe('Phase 5.1 command history', () => {
@@ -55,8 +59,8 @@ describe('Phase 5.1 command history', () => {
 describe('versioned save persistence', () => {
   it('round-trips a save and verifies its final state against replay', () => {
     const storage = new MemoryStorage();
-    const initialState = withUnit();
-    const commands: GameCommand[] = [{ type: 'move', unitId: 'r1', destination: { x: 1, y: 0 } }];
+    const initialState = canonicalSkirmish();
+    const commands: GameCommand[] = [];
     const gameState = replay(initialState, commands);
     expect(saveGame(storage, AUTO_SAVE_KEY, { mapId: 'skirmish', difficulty: 'normal', initialState, commands, gameState }).ok).toBe(true);
     const loaded = loadGame(storage);
@@ -67,7 +71,7 @@ describe('versioned save persistence', () => {
 
   it('preserves a valid campaign battle marker and rejects a mismatched marker', () => {
     const storage = new MemoryStorage();
-    const initialState = withUnit();
+    const initialState = canonicalSkirmish();
     const saved = saveGame(storage, AUTO_SAVE_KEY, {
       mapId: 'skirmish', difficulty: 'normal', initialState, commands: [],
       gameState: initialState, campaignScenarioId: 'skirmish',
@@ -84,7 +88,7 @@ describe('versioned save persistence', () => {
   });
 
   it('rejects structurally invalid commands and state', () => {
-    const initialState = withUnit();
+    const initialState = canonicalSkirmish();
     const invalid = {
       schemaVersion: SAVE_SCHEMA_VERSION, mapId: 'skirmish', difficulty: 'normal',
       savedAt: new Date().toISOString(), initialState, gameState: initialState,
@@ -94,13 +98,23 @@ describe('versioned save persistence', () => {
   });
 
   it('rejects a final state that does not match the command history', () => {
-    const initialState = withUnit();
-    const commands: GameCommand[] = [{ type: 'move', unitId: 'r1', destination: { x: 1, y: 0 } }];
+    const initialState = canonicalSkirmish();
+    const commands: GameCommand[] = [];
     const invalid = {
       schemaVersion: SAVE_SCHEMA_VERSION, mapId: 'skirmish', difficulty: 'normal',
-      savedAt: new Date().toISOString(), initialState, commands, gameState: initialState,
+      savedAt: new Date().toISOString(), initialState, commands, gameState: { ...initialState, turn: initialState.turn + 1 },
     };
     expect(parseSavedGame(JSON.stringify(invalid))).toEqual({ ok: false, error: 'セーブデータの状態がコマンド履歴と一致しません。' });
+  });
+
+  it('rejects a self-consistent save whose initial gold was edited', () => {
+    const initialState = canonicalSkirmish();
+    const edited = { ...initialState, players: { ...initialState.players, red: { ...initialState.players.red, gold: 999999 } } };
+    const invalid = {
+      schemaVersion: SAVE_SCHEMA_VERSION, mapId: 'skirmish', difficulty: 'normal',
+      savedAt: new Date().toISOString(), initialState: edited, commands: [], gameState: edited,
+    };
+    expect(parseSavedGame(JSON.stringify(invalid))).toEqual({ ok: false, error: 'セーブデータの内容が不正です。' });
   });
 
   it('rejects oversized data before parsing it', () => {
@@ -113,7 +127,7 @@ describe('versioned save persistence', () => {
       setItem: () => { throw new Error('blocked'); },
       removeItem: () => { throw new Error('blocked'); },
     };
-    const initialState = withUnit();
+    const initialState = canonicalSkirmish();
     expect(loadGame(unavailable)).toEqual({ ok: false, error: 'セーブデータを読み込めませんでした。' });
     expect(saveGame(unavailable, AUTO_SAVE_KEY, {
       mapId: 'skirmish', difficulty: 'normal', initialState, commands: [], gameState: initialState,
