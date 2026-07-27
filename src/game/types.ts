@@ -1,6 +1,10 @@
+import type { unitDefinitions } from './units';
+
 export type PlayerId = 'red' | 'blue';
-export type UnitKind = 'infantry' | 'tank' | 'artillery' | 'fighter' | 'bomber' | 'destroyer' | 'landingShip' | 'recon' | 'rocket';
-export type TerrainKind = 'plain' | 'forest' | 'road' | 'mountain' | 'sea' | 'city' | 'factory' | 'port' | 'capital';
+export type UnitKind = keyof typeof unitDefinitions;
+export const terrainKinds = ['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'port', 'capital'] as const;
+export type TerrainKind = (typeof terrainKinds)[number];
+export const terrainKindSet: ReadonlySet<string> = new Set(terrainKinds);
 
 export interface Position { x: number; y: number }
 
@@ -16,7 +20,7 @@ export interface Unit {
   owner: PlayerId;
   /** Present only while this unit is deployed on the board. */
   position?: Position;
-  /** ID of the landing ship carrying this unit. Embarked units have no position. */
+  /** ID of the transport carrying this unit. Embarked units have no position. */
   embarkedIn?: string;
   hp: number;
   fuel?: number;
@@ -63,4 +67,3 @@ export type GameResult<T = GameState> =
   | { ok: false; error: string };
 
 export const otherPlayer = (player: PlayerId): PlayerId => player === 'red' ? 'blue' : 'red';
-
