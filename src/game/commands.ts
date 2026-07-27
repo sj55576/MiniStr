@@ -1,6 +1,6 @@
 import { movementCost, positionKey, samePosition, terrainAt } from './terrain';
 import { playerOwnedProperties, unitAt } from './state';
-import { unitStats } from './units';
+import { isEmbarkableUnit, transportCapacity, unitStats } from './units';
 import { applyDamageVariance, forecastCombat } from './combat';
 import { nextRandom } from './rng';
 import { canProduceUnit, isPropertyTerrainKind } from './facilities';
@@ -171,38 +171,38 @@ function adjacent(first: Position, second: Position): boolean {
   return Math.abs(first.x - second.x) + Math.abs(first.y - second.y) === 1;
 }
 
-function canDeployInfantry(state: GameState, destination: Position): boolean {
+function canDeployEmbarkableUnit(state: GameState, destination: Position, kind: UnitKind): boolean {
   const terrain = terrainAt(state.board, destination);
-  return !!terrain && terrain.kind !== 'sea' && Number.isFinite(movementCost(state.board, destination, 'infantry'));
+  return !!terrain && terrain.kind !== 'sea' && Number.isFinite(movementCost(state.board, destination, kind));
 }
 
-/** Boards an adjacent, empty allied landing ship. Both units are spent to prevent a same-turn sea crossing. */
+/** Boards an adjacent allied transport. Both units are spent to prevent a same-turn sea crossing. */
 export function embarkUnit(state: GameState, unitId: string, transportId: string): GameResult {
   if (state.winner) return fail('Game has finished');
   const unit = state.units.find(candidate => candidate.id === unitId);
   const transport = state.units.find(candidate => candidate.id === transportId);
-  if (!unit || !transport || !isDeployedUnit(unit) || !isDeployedUnit(transport)) return fail('A deployed infantry unit and transport are required');
+  if (!unit || !transport || !isDeployedUnit(unit) || !isDeployedUnit(transport)) return fail('A deployed embarkable unit and transport are required');
   if (unit.owner !== state.activePlayer || transport.owner !== unit.owner) return fail('An active player transport is required');
-  if (unit.kind !== 'infantry') return fail('Only infantry may embark');
-  if (transport.kind !== 'landingShip') return fail('A landing ship is required');
+  if (!isEmbarkableUnit(unit.kind)) return fail('This unit cannot embark');
+  if (transportCapacity(transport.kind) === 0) return fail('A transport unit is required');
   if (unit.hasActed || transport.hasMoved || transport.hasActed) return fail('Unit or transport has already acted');
-  if (!canDeployInfantry(state, unit.position) || !adjacent(unit.position, transport.position)) return fail('Infantry must embark from an adjacent coast');
-  if (state.units.some(candidate => candidate.embarkedIn === transport.id)) return fail('Landing ship is already carrying a unit');
+  if (!canDeployEmbarkableUnit(state, unit.position, unit.kind) || !adjacent(unit.position, transport.position)) return fail('Infantry must embark from an adjacent coast');
+  if (state.units.filter(candidate => candidate.embarkedIn === transport.id).length >= transportCapacity(transport.kind)) return fail('Transport is already at capacity');
   return succeed({ ...state, units: state.units.map(candidate => candidate.id === unit.id
     ? { ...candidate, position: undefined, embarkedIn: transport.id, hasMoved: true, hasActed: true }
     : candidate.id === transport.id ? { ...candidate, hasMoved: true, hasActed: true } : candidate) });
 }
 
-/** Lands the single carried infantry unit onto an adjacent, vacant land tile. */
+/** Lands carried cargo onto an adjacent, vacant land tile. */
 export function disembarkUnit(state: GameState, transportId: string, destination: Position): GameResult {
   if (state.winner) return fail('Game has finished');
   const transport = state.units.find(candidate => candidate.id === transportId);
-  if (!transport || !isDeployedUnit(transport) || transport.kind !== 'landingShip') return fail('A deployed landing ship is required');
+  if (!transport || !isDeployedUnit(transport) || transportCapacity(transport.kind) === 0) return fail('A deployed transport unit is required');
   if (transport.owner !== state.activePlayer) return fail('Unit belongs to the other player');
   if (transport.hasMoved || transport.hasActed) return fail('Transport has already acted');
   const cargo = state.units.find(candidate => candidate.embarkedIn === transport.id);
-  if (!cargo || cargo.kind !== 'infantry' || cargo.owner !== transport.owner) return fail('Landing ship has no valid infantry cargo');
-  if (!adjacent(transport.position, destination) || unitAt(state, destination) || !canDeployInfantry(state, destination)) return fail('Destination must be an adjacent vacant land tile');
+  if (!cargo || !isEmbarkableUnit(cargo.kind) || cargo.owner !== transport.owner) return fail('Transport has no valid cargo');
+  if (!adjacent(transport.position, destination) || unitAt(state, destination) || !canDeployEmbarkableUnit(state, destination, cargo.kind)) return fail('Destination must be an adjacent vacant land tile');
   return succeed({ ...state, units: state.units.map(candidate => candidate.id === cargo.id
     ? { ...candidate, position: { ...destination }, embarkedIn: undefined, hasMoved: true, hasActed: true }
     : candidate.id === transport.id ? { ...candidate, hasMoved: true, hasActed: true } : candidate) });
