@@ -1,6 +1,7 @@
 import { attackUnit, captureProperty, disembarkUnit, embarkUnit, endTurn, moveUnit, produceUnit } from './commands';
 import { createScenarioInitialState, scenarioById } from './maps';
-import type { GameResult, GameState, Position, UnitKind } from './types';
+import { terrainKindSet, type GameResult, type GameState, type Position, type UnitKind } from './types';
+import { isEmbarkableUnit, transportCapacity, unitKindSet } from './units';
 
 /**
  * Schema v1 is additive: `Unit.embarkedIn` is optional, so saves created before
@@ -68,8 +69,6 @@ const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 const isPosition = (value: unknown): value is Position =>
   isRecord(value) && Number.isInteger(value.x) && Number.isInteger(value.y);
-const unitKinds = new Set<UnitKind>(['infantry', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'landingShip', 'recon', 'rocket']);
-const terrainKinds = new Set(['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'port', 'capital']);
 const players = new Set(['red', 'blue']);
 
 const isScenarioScores = (value: unknown): boolean => {
@@ -118,7 +117,7 @@ export function isGameCommand(value: unknown): value is GameCommand {
   if (value.type === 'embark') return typeof value.unitId === 'string' && typeof value.transportId === 'string';
   if (value.type === 'disembark') return typeof value.transportId === 'string' && isPosition(value.destination);
   return value.type === 'produce' && isPosition(value.factory)
-    && typeof value.kind === 'string' && unitKinds.has(value.kind as UnitKind);
+    && typeof value.kind === 'string' && unitKindSet.has(value.kind);
 }
 
 export function isGameState(value: unknown): value is GameState {
@@ -130,7 +129,7 @@ export function isGameState(value: unknown): value is GameState {
     || (width as number) > 256 || (height as number) > 256
     || value.board.terrain.length !== height) return false;
   if (!value.board.terrain.every(row => Array.isArray(row) && row.length === width && row.every(tile =>
-    isRecord(tile) && typeof tile.kind === 'string' && terrainKinds.has(tile.kind)
+    isRecord(tile) && typeof tile.kind === 'string' && terrainKindSet.has(tile.kind)
     && (tile.owner === undefined || players.has(tile.owner as string))
     && (tile.capturePoints === undefined || (isFiniteNumber(tile.capturePoints) && tile.capturePoints >= 0 && tile.capturePoints <= 20))))) return false;
 
@@ -140,7 +139,7 @@ export function isGameState(value: unknown): value is GameState {
   const unitsById = new Map<string, Record<string, unknown>>();
   for (const unit of value.units) {
     if (!isRecord(unit) || typeof unit.id !== 'string' || ids.has(unit.id)
-      || typeof unit.kind !== 'string' || !unitKinds.has(unit.kind as UnitKind)
+      || typeof unit.kind !== 'string' || !unitKindSet.has(unit.kind)
       || typeof unit.owner !== 'string' || !players.has(unit.owner)
       || !isFiniteNumber(unit.hp) || unit.hp <= 0 || unit.hp > 100
       || (unit.fuel !== undefined && (!isFiniteNumber(unit.fuel) || unit.fuel < 0))
@@ -159,13 +158,16 @@ export function isGameState(value: unknown): value is GameState {
     ids.add(unit.id);
     unitsById.set(unit.id, unit);
   }
-  const cargoByTransport = new Set<string>();
+  const cargoByTransport = new Map<string, number>();
   for (const unit of value.units) {
     if (!isRecord(unit) || unit.embarkedIn === undefined) continue;
     const transport = unitsById.get(unit.embarkedIn as string);
-    if (!transport || transport.kind !== 'landingShip' || transport.owner !== unit.owner || transport.embarkedIn !== undefined
-      || unit.kind !== 'infantry' || cargoByTransport.has(unit.embarkedIn as string)) return false;
-    cargoByTransport.add(unit.embarkedIn as string);
+    if (!transport || typeof transport.kind !== 'string' || !unitKindSet.has(transport.kind)
+      || transport.owner !== unit.owner || transport.embarkedIn !== undefined
+      || typeof unit.kind !== 'string' || !unitKindSet.has(unit.kind) || !isEmbarkableUnit(unit.kind as UnitKind)) return false;
+    const cargoCount = (cargoByTransport.get(unit.embarkedIn as string) ?? 0) + 1;
+    if (cargoCount > transportCapacity(transport.kind as UnitKind)) return false;
+    cargoByTransport.set(unit.embarkedIn as string, cargoCount);
   }
   const validPlayerState = (state: unknown) =>
     isRecord(state) && isFiniteNumber(state.gold) && state.gold >= 0
