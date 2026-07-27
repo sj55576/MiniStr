@@ -1,6 +1,6 @@
 import { forecastCombat } from '../game/combat';
 import { reachablePositions } from '../game/commands';
-import { isPropertyTerrainKind } from '../game/facilities';
+import { canProduceUnit, isPropertyTerrainKind } from '../game/facilities';
 import { visibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
 import { defenseStars, manhattanDistance, movementCost, terrainAt } from '../game/terrain';
@@ -15,12 +15,22 @@ export interface CpuDifficultyConfig {
   attackSafetyMargin: number;
   /** Whether a capital is preferred over other enemy objectives when moving. */
   prioritizeCapital: boolean;
+  /** Multiplier for projected damage from visible enemy counterattacks. */
+  threatAvoidanceWeight: number;
+  /** Multiplier for the defensive value of destination terrain. */
+  terrainDefenseWeight: number;
+  /** Cost per tile remaining to an objective. */
+  objectiveDistanceWeight: number;
+  /** Extra preference for cover and safety when the unit is damaged. */
+  lowHpRetreatWeight: number;
 }
 
 export const cpuDifficultyConfig: Record<CpuDifficulty, CpuDifficultyConfig> = {
-  easy: { attackSafetyMargin: 20, prioritizeCapital: false },
-  normal: { attackSafetyMargin: 0, prioritizeCapital: true },
-  hard: { attackSafetyMargin: -15, prioritizeCapital: true },
+  // Easy CPUs push toward objectives and only weakly account for cover and threat.
+  easy: { attackSafetyMargin: 20, prioritizeCapital: false, threatAvoidanceWeight: 0.35, terrainDefenseWeight: 0.5, objectiveDistanceWeight: 8, lowHpRetreatWeight: 0.25 },
+  normal: { attackSafetyMargin: 0, prioritizeCapital: true, threatAvoidanceWeight: 1, terrainDefenseWeight: 1, objectiveDistanceWeight: 6, lowHpRetreatWeight: 1 },
+  // Hard CPUs take calculated combat risks, but preserve damaged units and value cover.
+  hard: { attackSafetyMargin: -15, prioritizeCapital: true, threatAvoidanceWeight: 1.6, terrainDefenseWeight: 1.35, objectiveDistanceWeight: 4, lowHpRetreatWeight: 2 },
 };
 
 export type CpuAction =
@@ -97,9 +107,7 @@ function emptyOwnedFacility(state: GameState, player: PlayerId, kind: UnitKind):
     const position = { x, y };
     const tile = terrainAt(state.board, position);
     if (tile?.owner === player && !unitAt(state, position)) {
-      const canBuild = (tile.kind === 'factory' && !['destroyer', 'landingShip'].includes(kind))
-        || (tile.kind === 'port' && ['destroyer', 'landingShip'].includes(kind));
-      if (canBuild) return position;
+      if (canProduceUnit(tile.kind, kind)) return position;
     }
   }
   return undefined;
@@ -113,6 +121,7 @@ function specialistProduction(state: GameState, player: PlayerId): CpuAction | u
   const ownKinds = new Set(state.units.filter(unit => unit.owner === player).map(unit => unit.kind));
   const candidates: UnitKind[] = [];
   if (hasSea && !ownKinds.has('destroyer') && (visible.some(unit => unit.kind === 'destroyer' || unit.kind === 'landingShip') || state.board.terrain.some(row => row.some(tile => tile.kind === 'port')))) candidates.push('destroyer');
+  if (!ownKinds.has('antiAir') && visible.some(unit => unit.kind === 'fighter' || unit.kind === 'bomber')) candidates.push('antiAir');
   if (!ownKinds.has('fighter') && visible.some(unit => unit.kind === 'fighter' || unit.kind === 'bomber')) candidates.push('fighter');
   if (!ownKinds.has('bomber') && visible.some(unit => ['tank', 'artillery', 'rocket', 'destroyer'].includes(unit.kind))) candidates.push('bomber');
   for (const kind of candidates) {
@@ -198,12 +207,19 @@ function needsSupply(unit: DeployedUnit): boolean {
  * Scores a legal destination from knowledge available to the CPU.  Visible opponents
  * contribute counterattack risk; unseen units are intentionally absent from this function.
  */
-export function evaluateCpuPosition(state: GameState, player: PlayerId, unit: DeployedUnit, destination: Position, targets: readonly Position[]): number {
+export function evaluateCpuPosition(
+  state: GameState,
+  player: PlayerId,
+  unit: DeployedUnit,
+  destination: Position,
+  targets: readonly Position[],
+  config: CpuDifficultyConfig = cpuDifficultyConfig.normal,
+): number {
   const terrain = terrainAt(state.board, destination);
   if (!terrain) return Number.NEGATIVE_INFINITY;
   const moved: DeployedUnit = { ...unit, position: { ...destination } };
   const projected = { ...state, units: state.units.map(candidate => candidate.id === unit.id ? moved : candidate) };
-  const defense = defenseStars(terrain) * 9;
+  const defense = defenseStars(terrain) * 9 * config.terrainDefenseWeight;
   const supply = needsSupply(unit) && isPropertyTerrainKind(terrain.kind) && terrain.owner === player ? 80 : 0;
   const distance = targets.length ? Math.min(...targets.map(target => manhattanDistance(destination, target))) : 0;
   const pressure = visibleEnemies(state, player).filter(isDeployedUnit).reduce((risk, enemy) => {
@@ -215,7 +231,16 @@ export function evaluateCpuPosition(state: GameState, player: PlayerId, unit: De
       .reduce((best, enemy) => Math.min(best, manhattanDistance(destination, enemy.position)), Infinity)
     : Infinity;
   const response = Number.isFinite(captureThreat) ? Math.max(0, 36 - captureThreat * 7) : 0;
-  return defense + supply + response - distance * 6 - pressure;
+  // Below 50 HP, increasing pressure is especially undesirable while cover becomes
+  // more valuable. This creates a genuine retreat preference without hiding the
+  // normal objective and resupply incentives from damaged units.
+  const lowHpRatio = Math.max(0, 50 - unit.hp) / 50;
+  const retreatCover = lowHpRatio * config.lowHpRetreatWeight * defenseStars(terrain) * 12;
+  const retreatPressure = lowHpRatio * config.lowHpRetreatWeight * pressure;
+  return defense + supply + response + retreatCover
+    - distance * config.objectiveDistanceWeight
+    - pressure * config.threatAvoidanceWeight
+    - retreatPressure;
 }
 
 /** Choose one transport step before ordinary movement so island objectives are never stranded. */
@@ -270,7 +295,7 @@ function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyCon
     // Advance across the unit's whole movement range (Dijkstra reachability), weighing cover,
     // resupply and visible counterattack risk instead of raw distance alone.
     const destination = reachablePositions(state, unit.id)
-      .map(position => ({ position, score: evaluateCpuPosition(state, player, unit, position, targets) }))
+      .map(position => ({ position, score: evaluateCpuPosition(state, player, unit, position, targets, config) }))
       .sort((a, b) => b.score - a.score || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
     if (destination) return { type: 'move', unitId: unit.id, destination };
   }
@@ -289,4 +314,3 @@ export function chooseCpuAction(state: GameState, difficulty: CpuDifficulty = 'n
     ?? moveAction(state, player, config)
     ?? { type: 'endTurn' };
 }
-
