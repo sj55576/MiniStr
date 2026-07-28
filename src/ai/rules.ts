@@ -1,9 +1,9 @@
-import { forecastCombat } from '../game/combat';
+import { forecastCombat, terrainDefenseReduction } from '../game/combat';
 import { reachablePositions } from '../game/commands';
 import { canProduceUnit, isPropertyTerrainKind } from '../game/facilities';
 import { visibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
-import { defenseStars, manhattanDistance, movementCost, terrainAt } from '../game/terrain';
+import { manhattanDistance, movementCost, terrainAt } from '../game/terrain';
 import { isDeployedUnit, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
 import { unitStats } from '../game/units';
 
@@ -219,7 +219,9 @@ export function evaluateCpuPosition(
   if (!terrain) return Number.NEGATIVE_INFINITY;
   const moved: DeployedUnit = { ...unit, position: { ...destination } };
   const projected = { ...state, units: state.units.map(candidate => candidate.id === unit.id ? moved : candidate) };
-  const defense = defenseStars(terrain) * 9 * config.terrainDefenseWeight;
+  // Keep the positional value tied to the same HP-scaled mitigation used by combat.
+  // At 100 HP, each star is worth 10% mitigation and 9 position points.
+  const defense = terrainDefenseReduction(terrain, unit.hp) * 0.9 * config.terrainDefenseWeight;
   const supply = needsSupply(unit) && isPropertyTerrainKind(terrain.kind) && terrain.owner === player ? 80 : 0;
   const distance = targets.length ? Math.min(...targets.map(target => manhattanDistance(destination, target))) : 0;
   const pressure = visibleEnemies(state, player).filter(isDeployedUnit).reduce((risk, enemy) => {
@@ -235,7 +237,7 @@ export function evaluateCpuPosition(
   // more valuable. This creates a genuine retreat preference without hiding the
   // normal objective and resupply incentives from damaged units.
   const lowHpRatio = Math.max(0, 50 - unit.hp) / 50;
-  const retreatCover = lowHpRatio * config.lowHpRetreatWeight * defenseStars(terrain) * 12;
+  const retreatCover = lowHpRatio * config.lowHpRetreatWeight * terrainDefenseReduction(terrain, unit.hp) * 1.2;
   const retreatPressure = lowHpRatio * config.lowHpRetreatWeight * pressure;
   return defense + supply + response + retreatCover
     - distance * config.objectiveDistanceWeight
