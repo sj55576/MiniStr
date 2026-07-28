@@ -96,7 +96,7 @@ describe('CPU positional evaluation and production', () => {
     const board = createBoard(2, 1, { kind: 'road' });
     board.terrain[0]![1] = { kind: 'mountain' };
     const state = createGameState(board);
-    const fullHealth: DeployedUnit = { id: 'full', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false };
+    const fullHealth: DeployedUnit = { id: 'full', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false };
     const damaged: DeployedUnit = { ...fullHealth, id: 'damaged', hp: 50 };
 
     const coverGain = (unit: DeployedUnit) => evaluateCpuPosition(state, 'red', unit, { x: 1, y: 0 }, [])
