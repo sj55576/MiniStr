@@ -130,9 +130,18 @@ function parseScenario(value: unknown, ids: Set<string>): GameResult<ScenarioDef
   const defeatConditions = parseConditions(value.defeatConditions, '敗北条件');
   if (!defeatConditions.ok) return defeatConditions;
   const turnLimit = value.turnLimit;
-  if (turnLimit !== undefined && !isPositiveInteger(turnLimit)) return { ok: false, error: `シナリオ「${value.id}」のターン制限が不正です。` };
+  // turnLimit is retained as a UI-friendly shorthand for legacy data. Its
+  // gameplay effect is normalized into blue's ordinary survive condition so
+  // all results are resolved through the same condition evaluator.
+  if (turnLimit !== undefined && (!isPositiveInteger(turnLimit) || turnLimit >= Number.MAX_SAFE_INTEGER))
+    return { ok: false, error: `シナリオ「${value.id}」のターン制限が不正です。` };
+  const normalizedDefeatConditions = turnLimit === undefined
+    ? defeatConditions.value
+    // The numbered limit remains playable. The survival condition completes
+    // only after the next round begins, matching the legacy > turnLimit rule.
+    : [...defeatConditions.value, { type: 'survive' as const, untilTurn: turnLimit + 1 }];
   ids.add(value.id);
-  return { ok: true, value: { id: value.id, name: value.name, briefing: value.briefing, startingGold, board, initialUnits, victoryConditions: victoryConditions.value, defeatConditions: defeatConditions.value, turnLimit } };
+  return { ok: true, value: { id: value.id, name: value.name, briefing: value.briefing, startingGold, board, initialUnits, victoryConditions: victoryConditions.value, defeatConditions: normalizedDefeatConditions, turnLimit } };
 }
 
 /** Converts JSON-compatible scenario data into safe board state. No validation is repeated on lookup. */
