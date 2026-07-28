@@ -57,7 +57,7 @@ describe('expanded map roster', () => {
 
 
   it('rejects unsafe scenario IDs from JSON imports and saved custom scenario data', () => {
-    for (const id of ['unsafe\"quote', 'unsafe<angle', \"unsafe'apostrophe\"]) {
+    for (const id of ["unsafe\"quote", "unsafe<angle", "unsafe'apostrophe"]) {
       const source = { ...customScenario, id };
       expect(loadScenarioDefinitions([source]).ok).toBe(false);
       expect(importScenarioEditorJson(JSON.stringify(source), createScenarioEditor()).ok).toBe(false);
