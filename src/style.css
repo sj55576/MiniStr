@@ -28,6 +28,9 @@ button { cursor: pointer; }
 .board-viewport { width: 100%; max-width: 100%; overflow: auto; overscroll-behavior: contain; border-radius: 4px; scrollbar-color: #708d7f #101a16; }
 .board-viewport:focus-visible { outline: 3px solid #fff1a8; outline-offset: 3px; }
 .board-viewport .board { min-width: max-content; }
+.board-zoom-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; color: #c9d8ce; font-size: 11px; font-weight: 700; }
+.board-zoom-controls .save-action { min-width: 32px; padding: 5px 8px; font-size: 15px; line-height: 1; }
+.board-zoom-controls span { min-width: 3.2em; text-align: center; }
 
 .tile { overflow: hidden; background-image: linear-gradient(135deg, #5d9254 0 50%, #52864c 50%); }
 .tile.plain { background-image: linear-gradient(135deg, #6e9b55 0 50%, #608e4d 50%); }
