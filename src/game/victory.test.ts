@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   countDestroyedDeployedUnits, createBoard, createGameState, evaluateScenario, getConditionProgress, holdConditionKey,
-  isGameState, isVictoryConditionMet, maps, updateScenarioProgress, updateScenarioScores, type GameState,
+  isGameState, isVictoryConditionMet, loadScenarioDefinitions, maps, updateScenarioProgress, updateScenarioScores, type GameState,
   type ScenarioDefinition, type VictoryCondition,
 } from './index';
 
@@ -80,9 +80,20 @@ describe('data-driven victory conditions', () => {
     expect(isVictoryConditionMet(state, { type: 'score', target: 10 }, 'red')).toBe(false);
     state.scores.red = 10;
     expect(isVictoryConditionMet(state, { type: 'score', target: 10 }, 'red')).toBe(true);
-    expect(evaluateScenario({ ...state, turn: 4 }, scenario({ turnLimit: 5 }))).toBeUndefined();
-    expect(evaluateScenario(state, scenario({ turnLimit: 5 }))).toBeUndefined();
-    expect(evaluateScenario({ ...state, turn: 6 }, scenario({ turnLimit: 5 }))).toBe('blue');
+    const loaded = loadScenarioDefinitions([{
+      id: 'legacy-timeout', name: 'Legacy timeout', briefing: 'Test', startingGold: 0,
+      board: { width: 1, height: 1, cells: [] }, initialUnits: [],
+      victoryConditions: [{ type: 'score', target: 99 }],
+      defeatConditions: [{ type: 'score', target: 99 }],
+      turnLimit: 5,
+    }]);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    const timedScenario = loaded.value[0]!;
+    expect(timedScenario.defeatConditions).toContainEqual({ type: 'survive', untilTurn: 6 });
+    expect(evaluateScenario({ ...state, turn: 4 }, timedScenario)).toBeUndefined();
+    expect(evaluateScenario(state, timedScenario)).toBeUndefined();
+    expect(evaluateScenario({ ...state, turn: 6 }, timedScenario)).toBe('blue');
   });
 
   it('adds score from command state differences without mutating either state', () => {
@@ -120,13 +131,19 @@ describe('data-driven victory conditions', () => {
     expect(evaluateScenario({ ...state, activePlayer: 'blue' }, definition, 'red')).toBe('red');
   });
 
-  it('gives achieved objectives priority over an expiring turn limit', () => {
-    const state = createGameState(createBoard(1, 1));
-    state.turn = 5;
-    state.scores = { red: 10 };
-    expect(evaluateScenario(state, scenario({
-      victoryConditions: [{ type: 'score', target: 10 }], turnLimit: 5,
-    }))).toBe('red');
+  it('resolves an objective and normalized turn limit together through the active-player tie breaker', () => {
+    const loaded = loadScenarioDefinitions([{
+      id: 'timeout-tie', name: 'Timeout tie', briefing: 'Test', startingGold: 0,
+      board: { width: 1, height: 1, cells: [] }, initialUnits: [],
+      victoryConditions: [{ type: 'score', target: 10 }],
+      defeatConditions: [{ type: 'survive', untilTurn: 7 }],
+      turnLimit: 5,
+    }]);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    const state = { ...createGameState(loaded.value[0]!.board), turn: 6, scores: { red: 10 } };
+    expect(evaluateScenario(state, loaded.value[0]!)).toBe('red');
+    expect(evaluateScenario({ ...state, activePlayer: 'blue' }, loaded.value[0]!)).toBe('blue');
   });
 });
 
