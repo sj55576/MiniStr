@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyGameCommand, createBoard, createGameState, endTurn, maps, reachablePositions, type DeployedUnit, type GameState } from '../game';
-import { chooseCpuAction, evaluateCpuPosition } from './rules';
+import { chooseCpuAction, cpuDifficultyConfig, evaluateCpuPosition } from './rules';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -91,14 +91,30 @@ describe('CPU positional evaluation and production', () => {
     expect(evaluateCpuPosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 3, y: 0 }])).toBeGreaterThan(evaluateCpuPosition(state, 'red', tank, { x: 1, y: 0 }, [{ x: 3, y: 0 }]));
   });
 
-  it('produces a fighter for a confirmed air threat and a destroyer on a naval map', () => {
+
+  it('weights cover with the same HP-scaled terrain mitigation used by combat', () => {
+    const board = createBoard(2, 1, { kind: 'road' });
+    board.terrain[0]![1] = { kind: 'mountain' };
+    const state = createGameState(board);
+    const fullHealth: DeployedUnit = { id: 'full', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false };
+    const damaged: DeployedUnit = { ...fullHealth, id: 'damaged', hp: 50 };
+
+    const coverGain = (unit: DeployedUnit) => evaluateCpuPosition(state, 'red', unit, { x: 1, y: 0 }, [])
+      - evaluateCpuPosition(state, 'red', unit, { x: 0, y: 0 }, []);
+    // Mountain gives 40% mitigation at 100 HP and 20% at 50 HP. CPU scores
+    // those values as 36 and 18 respectively (the documented 0.9 score scale).
+    expect(coverGain(fullHealth)).toBe(36);
+    expect(coverGain(damaged)).toBe(18);
+  });
+
+  it('produces an anti-air counter for a confirmed air threat and a destroyer on a naval map', () => {
     const airBoard = createBoard(4, 2);
     airBoard.terrain[0]![0] = { kind: 'factory', owner: 'red', capturePoints: 20 };
     const airState = stateWith(createGameState(airBoard), { players: { red: { gold: 25_000, income: 0 }, blue: { gold: 0, income: 0 } }, units: [
       { id: 'scout', kind: 'recon', owner: 'red', position: { x: 0, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
       { id: 'bomber', kind: 'bomber', owner: 'blue', position: { x: 3, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
     ] });
-    expect(chooseCpuAction(airState)).toEqual({ type: 'produce', factory: { x: 0, y: 0 }, kind: 'fighter' });
+    expect(chooseCpuAction(airState)).toEqual({ type: 'produce', factory: { x: 0, y: 0 }, kind: 'antiAir' });
 
     const navalBoard = createBoard(2, 2, { kind: 'sea' });
     navalBoard.terrain[0]![0] = { kind: 'port', owner: 'red', capturePoints: 20 };
@@ -174,10 +190,6 @@ describe('CPU amphibious transport', () => {
     expect(scenario!.initialUnits.some(unit => unit.owner === 'red' && unit.kind === 'landingShip')).toBe(true);
   });
 });
-
-import { describe, expect, it } from 'vitest';
-import { createBoard, createGameState, type DeployedUnit, type GameState } from '../game';
-import { chooseCpuAction, cpuDifficultyConfig, evaluateCpuPosition } from './rules';
 
 function unit(hp = 100): DeployedUnit {
   return { id: 'red-tank', kind: 'tank', owner: 'red', position: { x: 1, y: 0 }, hp, hasMoved: false, hasActed: false };

@@ -1,8 +1,20 @@
 import { defenseStars, manhattanDistance, terrainAt } from './terrain';
+import type { Terrain } from './types';
 import { damageMultiplier, unitCategory, unitStats } from './units';
 import { isDeployedUnit, type GameResult, type GameState, type Unit } from './types';
 
 export { damageMultiplier };
+
+/** Each terrain defense star reduces incoming damage by this percentage at 100 HP. */
+export const DEFENSE_PERCENT_PER_STAR = 10;
+
+/**
+ * Terrain cover weakens with the defender's current HP, matching the combat rules.
+ * A four-star tile protects a full-health unit by 40%, or a 50-HP unit by 20%.
+ */
+export function terrainDefenseReduction(terrain: Terrain, hp: number): number {
+  return defenseStars(terrain) * DEFENSE_PERCENT_PER_STAR * hp / 100;
+}
 
 export interface CombatForecast {
   /** Expected damage before the ±10% combat variance is applied. */
@@ -42,14 +54,14 @@ export function forecastCombat(state: GameState, attacker: Unit, defender: Unit)
   const attackerTerrain = terrainAt(state.board, attacker.position);
   if (!defenderTerrain || !attackerTerrain) return { ok: false, error: 'Unit is outside the board' };
   const raw = unitStats[attacker.kind].attack * attacker.hp / 100 * damageMultiplier[attacker.kind][unitCategory[defender.kind]];
-  const reduction = defenseStars(defenderTerrain) * defender.hp / 100;
+  const reduction = terrainDefenseReduction(defenderTerrain, defender.hp);
   const damageToDefender = Math.max(0, Math.round(raw * (1 - reduction / 100)));
   const defenderRemaining = Math.max(0, defender.hp - damageToDefender);
   const counterRange = unitStats[defender.kind].range;
   const defenderAmmo = defender.ammo ?? unitStats[defender.kind].ammo;
   const canCounter = defenderRemaining > 0 && defenderAmmo > 0 && distance >= counterRange[0] && distance <= counterRange[1];
   const counterRaw = canCounter ? unitStats[defender.kind].attack * defenderRemaining / 100 * damageMultiplier[defender.kind][unitCategory[attacker.kind]] : 0;
-  const counterReduction = defenseStars(attackerTerrain) * attacker.hp / 100;
+  const counterReduction = terrainDefenseReduction(attackerTerrain, attacker.hp);
   const damageToAttacker = Math.max(0, Math.round(counterRaw * (1 - counterReduction / 100)));
   return { ok: true, value: { damageToDefender, damageToAttacker, canCounter } };
 }

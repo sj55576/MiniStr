@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { availableScenarios, createScenarioInitialState, loadCustomScenarios, maps, saveCustomScenario, scenarioById, unitStats, type ScenarioData, type ScenarioStorageLike } from './index';
+import { CUSTOM_SCENARIOS_KEY, availableScenarios, createScenarioEditor, createScenarioInitialState, importScenarioEditorJson, loadCustomScenarios, loadScenarioDefinitions, maps, saveCustomScenario, scenarioById, unitStats, type ScenarioData, type ScenarioStorageLike } from './index';
 
 class MemoryStorage implements ScenarioStorageLike {
   data = new Map<string, string>();
@@ -53,5 +53,22 @@ describe('expanded map roster', () => {
     expect(scenarioById(customScenario.id)).toBeUndefined();
     expect(loadCustomScenarios(storage).ok).toBe(true);
     expect(scenarioById(customScenario.id)?.board.width).toBe(2);
+  });
+
+
+  it('rejects unsafe scenario IDs from JSON imports and saved custom scenario data', () => {
+    for (const id of ["unsafe\"quote", "unsafe<angle", "unsafe'apostrophe"]) {
+      const source = { ...customScenario, id };
+      expect(loadScenarioDefinitions([source]).ok).toBe(false);
+      expect(importScenarioEditorJson(JSON.stringify(source), createScenarioEditor()).ok).toBe(false);
+    }
+
+    const storage = new MemoryStorage();
+    storage.setItem(CUSTOM_SCENARIOS_KEY, JSON.stringify({
+      schemaVersion: 1,
+      scenarios: [{ ...customScenario, id: 'unsafe\"persisted' }],
+    }));
+    expect(loadCustomScenarios(storage).ok).toBe(false);
+    expect(scenarioById('unsafe\"persisted')).toBeUndefined();
   });
 });

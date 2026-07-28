@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBoard, createGameState, damageMultiplier, forecastCombat, unitCategory } from './index';
+import { createBoard, createGameState, damageMultiplier, forecastCombat, terrainDefenseReduction, unitCategory, type TerrainKind } from './index';
 
 describe('Type-effectiveness combat matrix', () => {
   it('exposes the expected unit categories', () => {
@@ -61,6 +61,45 @@ describe('Type-effectiveness combat matrix', () => {
   });
 });
 
+
+
+describe('Terrain defense scaling', () => {
+  // Tank (75 attack) versus a full-health infantry defender.  This table is the
+  // player-visible rule: each defense star is worth 10% damage mitigation.
+  const terrainDamageExpectations: readonly { kind: TerrainKind; reduction: number; damage: number }[] = [
+    { kind: 'road', reduction: 0, damage: 75 },
+    { kind: 'sea', reduction: 0, damage: 75 },
+    { kind: 'plain', reduction: 10, damage: 68 },
+    { kind: 'forest', reduction: 20, damage: 60 },
+    { kind: 'city', reduction: 30, damage: 53 },
+    { kind: 'factory', reduction: 30, damage: 53 },
+    { kind: 'port', reduction: 30, damage: 53 },
+    { kind: 'mountain', reduction: 40, damage: 45 },
+    { kind: 'capital', reduction: 40, damage: 45 },
+  ];
+
+  it('applies the documented mitigation and expected damage for every terrain', () => {
+    for (const { kind, reduction, damage } of terrainDamageExpectations) {
+      const board = createBoard(2, 1, { kind: 'road' });
+      board.terrain[0]![1] = { kind };
+      const result = forecastCombat(createGameState(board),
+        { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+        { id: 'd', kind: 'infantry', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
+      expect(terrainDefenseReduction({ kind }, 100)).toBe(reduction);
+      expect(result.ok && result.value.damageToDefender).toBe(damage);
+    }
+  });
+
+  it('scales terrain mitigation down with the defender health', () => {
+    const board = createBoard(2, 1, { kind: 'road' });
+    board.terrain[0]![1] = { kind: 'mountain' };
+    const result = forecastCombat(createGameState(board),
+      { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'd', kind: 'infantry', owner: 'blue', position: { x: 1, y: 0 }, hp: 50, hasMoved: false, hasActed: false });
+    expect(terrainDefenseReduction({ kind: 'mountain' }, 50)).toBe(20);
+    expect(result.ok && result.value.damageToDefender).toBe(60);
+  });
+});
 
 describe('Counterattack ammunition', () => {
   it('allows a surviving in-range defender with ammunition to counterattack', () => {
