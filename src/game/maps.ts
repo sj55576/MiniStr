@@ -48,6 +48,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isPositiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
 const isNonNegativeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const isPosition = (value: unknown): value is Position => isRecord(value) && Number.isSafeInteger(value.x) && Number.isSafeInteger(value.y);
+const scenarioIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
 
 const cloneJson = (value: unknown): GameResult<unknown> => {
   try { return { ok: true, value: JSON.parse(JSON.stringify(value)) }; }
@@ -77,7 +78,8 @@ function parseVictoryCondition(value: unknown, width: number, height: number): V
 
 function parseScenario(value: unknown, ids: Set<string>): GameResult<ScenarioDefinition> {
   if (!isRecord(value)) return { ok: false, error: '各シナリオはオブジェクトである必要があります。' };
-  if (typeof value.id !== 'string' || value.id.trim() === '' || ids.has(value.id)) return { ok: false, error: 'シナリオIDが空、または重複しています。' };
+  if (typeof value.id !== 'string' || !scenarioIdPattern.test(value.id)) return { ok: false, error: 'シナリオIDは英数字、ハイフン、アンダースコアを1〜64文字で指定してください。' };
+  if (ids.has(value.id)) return { ok: false, error: 'シナリオIDが重複しています。' };
   if (typeof value.name !== 'string' || value.name.trim() === '' || typeof value.briefing !== 'string') return { ok: false, error: `シナリオ「${value.id}」の表示文が不正です。` };
   const startingGold = value.startingGold;
   if (!isNonNegativeInteger(startingGold)) return { ok: false, error: `シナリオ「${value.id}」の開始資金が不正です。` };
