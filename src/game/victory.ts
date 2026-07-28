@@ -132,7 +132,8 @@ export function updateScenarioScores(previous: GameState, next: GameState): Game
 /**
  * Scenarios describe the red player's victory list and the blue player's mirrored
  * defeat list. If both sides meet a condition on the same state, the active player
- * wins, making simultaneous resolution deterministic. A turn limit is inclusive.
+ * wins, making simultaneous resolution deterministic. Legacy turn limits are
+ * normalized to blue's survive condition while loading a scenario.
  */
 export function evaluateScenario(state: GameState, scenario: ScenarioDefinition, tieBreaker: PlayerId = state.activePlayer): PlayerId | undefined {
   if (state.winner) return state.winner;
@@ -141,8 +142,6 @@ export function evaluateScenario(state: GameState, scenario: ScenarioDefinition,
   if (redWon && blueWon) return tieBreaker;
   if (redWon) return 'red';
   if (blueWon) return 'blue';
-  // The numbered turn remains playable; defeat is resolved after advancing past it.
-  if (scenario.turnLimit !== undefined && state.turn > scenario.turnLimit) return 'blue';
   return undefined;
 }
 
