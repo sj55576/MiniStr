@@ -91,6 +91,22 @@ describe('CPU positional evaluation and production', () => {
     expect(evaluateCpuPosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 3, y: 0 }])).toBeGreaterThan(evaluateCpuPosition(state, 'red', tank, { x: 1, y: 0 }, [{ x: 3, y: 0 }]));
   });
 
+
+  it('weights cover with the same HP-scaled terrain mitigation used by combat', () => {
+    const board = createBoard(2, 1, { kind: 'road' });
+    board.terrain[0]![1] = { kind: 'mountain' };
+    const state = createGameState(board);
+    const fullHealth: DeployedUnit = { id: 'full', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false };
+    const damaged: DeployedUnit = { ...fullHealth, id: 'damaged', hp: 50 };
+
+    const coverGain = (unit: DeployedUnit) => evaluateCpuPosition(state, 'red', unit, { x: 1, y: 0 }, [])
+      - evaluateCpuPosition(state, 'red', unit, { x: 0, y: 0 }, []);
+    // Mountain gives 40% mitigation at 100 HP and 20% at 50 HP. CPU scores
+    // those values as 36 and 18 respectively (the documented 0.9 score scale).
+    expect(coverGain(fullHealth)).toBe(36);
+    expect(coverGain(damaged)).toBe(18);
+  });
+
   it('produces a fighter for a confirmed air threat and a destroyer on a naval map', () => {
     const airBoard = createBoard(4, 2);
     airBoard.terrain[0]![0] = { kind: 'factory', owner: 'red', capturePoints: 20 };
