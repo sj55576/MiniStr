@@ -107,14 +107,14 @@ describe('CPU positional evaluation and production', () => {
     expect(coverGain(damaged)).toBe(18);
   });
 
-  it('produces a fighter for a confirmed air threat and a destroyer on a naval map', () => {
+  it('produces an anti-air counter for a confirmed air threat and a destroyer on a naval map', () => {
     const airBoard = createBoard(4, 2);
     airBoard.terrain[0]![0] = { kind: 'factory', owner: 'red', capturePoints: 20 };
     const airState = stateWith(createGameState(airBoard), { players: { red: { gold: 25_000, income: 0 }, blue: { gold: 0, income: 0 } }, units: [
       { id: 'scout', kind: 'recon', owner: 'red', position: { x: 0, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
       { id: 'bomber', kind: 'bomber', owner: 'blue', position: { x: 3, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
     ] });
-    expect(chooseCpuAction(airState)).toEqual({ type: 'produce', factory: { x: 0, y: 0 }, kind: 'fighter' });
+    expect(chooseCpuAction(airState)).toEqual({ type: 'produce', factory: { x: 0, y: 0 }, kind: 'antiAir' });
 
     const navalBoard = createBoard(2, 2, { kind: 'sea' });
     navalBoard.terrain[0]![0] = { kind: 'port', owner: 'red', capturePoints: 20 };
