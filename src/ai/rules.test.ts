@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyGameCommand, createBoard, createGameState, endTurn, maps, reachablePositions, type DeployedUnit, type GameState } from '../game';
-import { chooseCpuAction, evaluateCpuPosition } from './rules';
+import { chooseCpuAction, cpuDifficultyConfig, evaluateCpuPosition } from './rules';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -190,10 +190,6 @@ describe('CPU amphibious transport', () => {
     expect(scenario!.initialUnits.some(unit => unit.owner === 'red' && unit.kind === 'landingShip')).toBe(true);
   });
 });
-
-import { describe, expect, it } from 'vitest';
-import { createBoard, createGameState, type DeployedUnit, type GameState } from '../game';
-import { chooseCpuAction, cpuDifficultyConfig, evaluateCpuPosition } from './rules';
 
 function unit(hp = 100): DeployedUnit {
   return { id: 'red-tank', kind: 'tank', owner: 'red', position: { x: 1, y: 0 }, hp, hasMoved: false, hasActed: false };
