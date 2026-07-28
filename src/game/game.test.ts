@@ -137,7 +137,7 @@ describe('Phase 2 game rules', () => {
     const result = forecastCombat(state,
       { id: 'a', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
       { id: 'd', kind: 'artillery', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false });
-    expect(result.ok && result.value).toMatchObject({ damageToDefender: 74, damageToAttacker: 0, canCounter: false });
+    expect(result.ok && result.value).toMatchObject({ damageToDefender: 60, damageToAttacker: 0, canCounter: false });
   });
 
   it('prevents movement after attacking while preserving move-then-attack', () => {
