@@ -21,13 +21,19 @@ export function moveUnit(state: GameState, unitId: string, destination: Position
   if (unit.hasMoved) return fail('Unit has already moved');
   if (unit.hasActed) return fail('Unit has already acted');
   if ((unit.fuel ?? unitStats[unit.kind].fuel) <= 0) return fail('Unit is out of fuel');
-  if (unitAt(state, destination)) return fail('Destination is occupied');
   const costs = movementCosts(state, unitId);
-  const spent = costs.get(positionKey(destination));
-  if (spent === undefined) return fail('Destination is out of range');
+  let finalDestination = destination;
+  let spent = costs.get(positionKey(destination));
+  if (spent === undefined) {
+    const encounter = hiddenEnemyEncounter(state, unit, destination, costs);
+    if (!encounter) return fail(unitAt(state, destination) ? 'Destination is occupied' : 'Destination is out of range');
+    finalDestination = encounter.destination;
+    spent = encounter.spent;
+  }
+  if (unitAt(state, finalDestination)) return fail('Destination is occupied');
   const fuel = (unit.fuel ?? unitStats[unit.kind].fuel) - spent;
-  const board = releaseCaptureProgress(state.board, unit);
-  return succeed({ ...state, board, units: state.units.map(candidate => candidate.id === unitId ? { ...candidate, position: { ...destination }, hasMoved: true, fuel } : candidate) });
+  const board = samePosition(unit.position, finalDestination) ? state.board : releaseCaptureProgress(state.board, unit);
+  return succeed({ ...state, board, units: state.units.map(candidate => candidate.id === unitId ? { ...candidate, position: { ...finalDestination }, hasMoved: true, fuel } : candidate) });
 }
 
 /**
@@ -61,6 +67,64 @@ export function movementCosts(state: GameState, unitId: string): Map<string, num
     }
   }
   return costs;
+}
+
+/**
+ * Reconstructs one lowest-cost route from the Dijkstra result.  The route is
+ * stable so replaying an encounter always stops at the same tile.
+ */
+function pathFromMovementCosts(
+  state: GameState,
+  unit: Unit & { position: Position },
+  destination: Position,
+  costs: ReadonlyMap<string, number>,
+): Position[] | undefined {
+  const route = [{ ...destination }];
+  while (!samePosition(route[route.length - 1]!, unit.position)) {
+    const current = route[route.length - 1]!;
+    const currentCost = costs.get(positionKey(current));
+    if (currentCost === undefined) return undefined;
+    const step = movementCost(state.board, current, unit.kind);
+    const previous = [
+      { x: current.x - 1, y: current.y }, { x: current.x + 1, y: current.y },
+      { x: current.x, y: current.y - 1 }, { x: current.x, y: current.y + 1 },
+    ].filter(candidate => costs.get(positionKey(candidate)) === currentCost - step)
+      .sort((a, b) => a.y - b.y || a.x - b.x)[0];
+    if (!previous) return undefined;
+    route.push(previous);
+  }
+  return route.reverse();
+}
+
+/**
+ * A player may plan through enemies outside their current vision.  On first
+ * contact, complete the move at the tile immediately before that enemy instead
+ * of reporting a failed destination (which would leak hidden information).
+ */
+function hiddenEnemyEncounter(
+  state: GameState,
+  unit: Unit & { position: Position },
+  destination: Position,
+  actualCosts: ReadonlyMap<string, number>,
+): { destination: Position; spent: number } | undefined {
+  const visible = new Set(visiblePositions(state, unit.owner).map(positionKey));
+  const preview = {
+    ...state,
+    units: state.units.filter(candidate => candidate.owner === unit.owner || !isDeployedUnit(candidate) || visible.has(positionKey(candidate.position))),
+  };
+  const previewCosts = movementCosts(preview, unit.id);
+  if (!previewCosts.has(positionKey(destination))) return undefined;
+  const route = pathFromMovementCosts(preview, unit, destination, previewCosts);
+  if (!route) return undefined;
+  const encounterIndex = route.findIndex((position, index) => {
+    if (index === 0) return false;
+    const blocker = unitAt(state, position);
+    return !!blocker && blocker.owner !== unit.owner && !visible.has(positionKey(position));
+  });
+  if (encounterIndex < 1) return undefined;
+  const stop = route[encounterIndex - 1]!;
+  const spent = actualCosts.get(positionKey(stop));
+  return spent === undefined ? undefined : { destination: stop, spent };
 }
 
 /** Tiles the unit can move to (excludes its current tile), for UI highlighting and AI planning. */
