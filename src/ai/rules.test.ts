@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { applyGameCommand, createBoard, createGameState, endTurn, maps, reachablePositions, type DeployedUnit, type GameState } from '../game';
-import { chooseCpuAction, cpuDifficultyConfig, createCpuPlanningContext, evaluateCpuPosition } from './rules';
+import { chooseCpuAction, cpuDifficultyConfig, createCpuPlanningContext, evaluateCpuPosition as scoreCpuPosition } from './rules';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
+
+function evaluatePosition(
+  state: GameState,
+  player: 'red' | 'blue',
+  unit: DeployedUnit,
+  destination: { x: number; y: number },
+  targets: readonly { x: number; y: number }[],
+  config = cpuDifficultyConfig.normal,
+): number {
+  const { visibleEnemies } = createCpuPlanningContext(state, player, config);
+  return scoreCpuPosition(state, player, unit, destination, targets, config, visibleEnemies);
+}
 
 describe('Phase 3 rule-based CPU', () => {
   it('captures an enemy property before taking other actions', () => {
@@ -87,8 +99,8 @@ describe('CPU positional evaluation and production', () => {
       { id: 'tank', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 2, ammo: 1, hasMoved: false, hasActed: false },
     ] });
     const tank = state.units[0]! as DeployedUnit;
-    expect(evaluateCpuPosition(state, 'red', tank, { x: 1, y: 0 }, [{ x: 3, y: 0 }])).toBeGreaterThan(0);
-    expect(evaluateCpuPosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 3, y: 0 }])).toBeGreaterThan(evaluateCpuPosition(state, 'red', tank, { x: 1, y: 0 }, [{ x: 3, y: 0 }]));
+    expect(evaluatePosition(state, 'red', tank, { x: 1, y: 0 }, [{ x: 3, y: 0 }])).toBeGreaterThan(0);
+    expect(evaluatePosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 3, y: 0 }])).toBeGreaterThan(evaluatePosition(state, 'red', tank, { x: 1, y: 0 }, [{ x: 3, y: 0 }]));
   });
 
 
@@ -99,8 +111,8 @@ describe('CPU positional evaluation and production', () => {
     const fullHealth: DeployedUnit = { id: 'full', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false };
     const damaged: DeployedUnit = { ...fullHealth, id: 'damaged', hp: 50 };
 
-    const coverGain = (unit: DeployedUnit) => evaluateCpuPosition(state, 'red', unit, { x: 1, y: 0 }, [])
-      - evaluateCpuPosition(state, 'red', unit, { x: 0, y: 0 }, []);
+    const coverGain = (unit: DeployedUnit) => evaluatePosition(state, 'red', unit, { x: 1, y: 0 }, [])
+      - evaluatePosition(state, 'red', unit, { x: 0, y: 0 }, []);
     // Mountain gives 40% mitigation at 100 HP and 20% at 50 HP. CPU scores
     // those values as 36 and 18 respectively (the documented 0.9 score scale).
     expect(coverGain(fullHealth)).toBe(36);
@@ -132,7 +144,6 @@ describe('CPU positional evaluation and production', () => {
     const withHiddenEnemy = stateWith(base, { units: [...base.units, { id: 'hidden', kind: 'rocket', owner: 'blue', position: { x: 5, y: 0 }, hp: 100, hasMoved: false, hasActed: false }] });
     expect(chooseCpuAction(withHiddenEnemy)).toEqual(chooseCpuAction(base));
   });
-});
 
   it('shares one fog-safe observation set across positional evaluations', () => {
     const state = stateWithVisibleThreat();
@@ -140,13 +151,14 @@ describe('CPU positional evaluation and production', () => {
     const context = createCpuPlanningContext(state, 'red', cpuDifficultyConfig.normal);
 
     expect(context.visibleEnemies.map(unit => unit.id)).toEqual(['blue-tank']);
-    const viaContext = evaluateCpuPosition(
+    const viaContext = scoreCpuPosition(
       state, 'red', tank, { x: 0, y: 0 }, context.targets, cpuDifficultyConfig.normal, context.visibleEnemies,
     );
-    expect(viaContext).toBe(evaluateCpuPosition(
+    expect(viaContext).toBe(evaluatePosition(
       state, 'red', tank, { x: 0, y: 0 }, context.targets, cpuDifficultyConfig.normal,
     ));
   });
+});
 
 function islandTransportState(withShip = true): GameState {
   const board = createBoard(8, 3, { kind: 'sea' });
@@ -230,22 +242,22 @@ describe('CPU movement difficulty', () => {
     const tank = state.units[0] as DeployedUnit;
     const targets = [{ x: 5, y: 0 }];
 
-    const easyThreatGap = evaluateCpuPosition(state, 'red', tank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.easy)
-      - evaluateCpuPosition(state, 'red', tank, { x: 3, y: 0 }, targets, cpuDifficultyConfig.easy);
-    const hardThreatGap = evaluateCpuPosition(state, 'red', tank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.hard)
-      - evaluateCpuPosition(state, 'red', tank, { x: 3, y: 0 }, targets, cpuDifficultyConfig.hard);
+    const easyThreatGap = evaluatePosition(state, 'red', tank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.easy)
+      - evaluatePosition(state, 'red', tank, { x: 3, y: 0 }, targets, cpuDifficultyConfig.easy);
+    const hardThreatGap = evaluatePosition(state, 'red', tank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.hard)
+      - evaluatePosition(state, 'red', tank, { x: 3, y: 0 }, targets, cpuDifficultyConfig.hard);
     expect(hardThreatGap).toBeGreaterThan(easyThreatGap);
 
-    const easyTerrainBonus = evaluateCpuPosition(state, 'red', tank, { x: 0, y: 0 }, [{ x: 1, y: 0 }], cpuDifficultyConfig.easy)
-      - evaluateCpuPosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 2, y: 0 }], cpuDifficultyConfig.easy);
-    const hardTerrainBonus = evaluateCpuPosition(state, 'red', tank, { x: 0, y: 0 }, [{ x: 1, y: 0 }], cpuDifficultyConfig.hard)
-      - evaluateCpuPosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 2, y: 0 }], cpuDifficultyConfig.hard);
+    const easyTerrainBonus = evaluatePosition(state, 'red', tank, { x: 0, y: 0 }, [{ x: 1, y: 0 }], cpuDifficultyConfig.easy)
+      - evaluatePosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 2, y: 0 }], cpuDifficultyConfig.easy);
+    const hardTerrainBonus = evaluatePosition(state, 'red', tank, { x: 0, y: 0 }, [{ x: 1, y: 0 }], cpuDifficultyConfig.hard)
+      - evaluatePosition(state, 'red', tank, { x: 3, y: 0 }, [{ x: 2, y: 0 }], cpuDifficultyConfig.hard);
     expect(hardTerrainBonus).toBeGreaterThan(easyTerrainBonus);
 
-    const easyDistanceGain = evaluateCpuPosition(state, 'red', tank, { x: 2, y: 0 }, targets, cpuDifficultyConfig.easy)
-      - evaluateCpuPosition(state, 'red', tank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.easy);
-    const hardDistanceGain = evaluateCpuPosition(state, 'red', tank, { x: 2, y: 0 }, targets, cpuDifficultyConfig.hard)
-      - evaluateCpuPosition(state, 'red', tank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.hard);
+    const easyDistanceGain = evaluatePosition(state, 'red', tank, { x: 2, y: 0 }, targets, cpuDifficultyConfig.easy)
+      - evaluatePosition(state, 'red', tank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.easy);
+    const hardDistanceGain = evaluatePosition(state, 'red', tank, { x: 2, y: 0 }, targets, cpuDifficultyConfig.hard)
+      - evaluatePosition(state, 'red', tank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.hard);
     expect(easyDistanceGain).toBeGreaterThan(hardDistanceGain);
   });
 
@@ -255,10 +267,10 @@ describe('CPU movement difficulty', () => {
     const targets = [{ x: 5, y: 0 }];
     const damagedTank = damagedState.units[0] as DeployedUnit;
     const healthyTank = healthyState.units[0] as DeployedUnit;
-    const damagedRetreatGain = evaluateCpuPosition(damagedState, 'red', damagedTank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.hard)
-      - evaluateCpuPosition(damagedState, 'red', damagedTank, { x: 3, y: 0 }, targets, cpuDifficultyConfig.hard);
-    const healthyRetreatGain = evaluateCpuPosition(healthyState, 'red', healthyTank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.hard)
-      - evaluateCpuPosition(healthyState, 'red', healthyTank, { x: 3, y: 0 }, targets, cpuDifficultyConfig.hard);
+    const damagedRetreatGain = evaluatePosition(damagedState, 'red', damagedTank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.hard)
+      - evaluatePosition(damagedState, 'red', damagedTank, { x: 3, y: 0 }, targets, cpuDifficultyConfig.hard);
+    const healthyRetreatGain = evaluatePosition(healthyState, 'red', healthyTank, { x: 0, y: 0 }, targets, cpuDifficultyConfig.hard)
+      - evaluatePosition(healthyState, 'red', healthyTank, { x: 3, y: 0 }, targets, cpuDifficultyConfig.hard);
 
     expect(damagedRetreatGain).toBeGreaterThan(healthyRetreatGain);
   });
