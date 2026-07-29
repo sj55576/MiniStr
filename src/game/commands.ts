@@ -139,6 +139,7 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
   const attacker = state.units.find(unit => unit.id === attackerId);
   const defender = state.units.find(unit => unit.id === defenderId);
   if (!attacker || !defender || !isDeployedUnit(attacker) || !isDeployedUnit(defender) || attacker.owner !== state.activePlayer || attacker.hasActed) return fail('Unit cannot attack');
+  if (unitStats[attacker.kind].indirect && attacker.hasMoved) return fail('Indirect units cannot attack after moving');
   if ((attacker.ammo ?? unitStats[attacker.kind].ammo) <= 0) return fail('Unit is out of ammunition');
   if (defender.owner !== attacker.owner && !visibleEnemies(state, attacker.owner).some(unit => unit.id === defender.id)) return fail('Target is not visible');
   const forecast = forecastCombat(state, attacker, defender);
