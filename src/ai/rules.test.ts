@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyGameCommand, createBoard, createGameState, endTurn, maps, reachablePositions, type DeployedUnit, type GameState } from '../game';
-import { chooseCpuAction, cpuDifficultyConfig, evaluateCpuPosition } from './rules';
+import { chooseCpuAction, cpuDifficultyConfig, createCpuPlanningContext, evaluateCpuPosition } from './rules';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -133,6 +133,20 @@ describe('CPU positional evaluation and production', () => {
     expect(chooseCpuAction(withHiddenEnemy)).toEqual(chooseCpuAction(base));
   });
 });
+
+  it('shares one fog-safe observation set across positional evaluations', () => {
+    const state = stateWithVisibleThreat();
+    const tank = state.units[0] as DeployedUnit;
+    const context = createCpuPlanningContext(state, 'red', cpuDifficultyConfig.normal);
+
+    expect(context.visibleEnemies.map(unit => unit.id)).toEqual(['blue-tank']);
+    const viaContext = evaluateCpuPosition(
+      state, 'red', tank, { x: 0, y: 0 }, context.targets, cpuDifficultyConfig.normal, context.visibleEnemies,
+    );
+    expect(viaContext).toBe(evaluateCpuPosition(
+      state, 'red', tank, { x: 0, y: 0 }, context.targets, cpuDifficultyConfig.normal,
+    ));
+  });
 
 function islandTransportState(withShip = true): GameState {
   const board = createBoard(8, 3, { kind: 'sea' });
