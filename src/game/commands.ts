@@ -220,14 +220,25 @@ export function endTurn(state: GameState): GameState {
     if (!isDeployedUnit(unit)) return { ...unit, hasMoved: false, hasActed: false };
     const terrain = terrainAt(progressed.board, unit.position);
     const onOwnedProperty = !!terrain && isPropertyTerrainKind(terrain.kind) && terrain.owner === activePlayer;
-    if (!onOwnedProperty) return { ...unit, hasMoved: false, hasActed: false };
     const stats = unitStats[unit.kind];
-    return { ...unit, hasMoved: false, hasActed: false, fuel: stats.fuel, ammo: stats.ammo, hp: Math.min(100, unit.hp + 20) };
+    if (onOwnedProperty) {
+      return { ...unit, hasMoved: false, hasActed: false, fuel: stats.fuel, ammo: stats.ammo, hp: Math.min(100, unit.hp + 20) };
+    }
+    // Aircraft and ships consume fuel even while stationary. Ground units have
+    // a zero rate, so they retain the established "immobile but present" rule.
+    return { ...unit, hasMoved: false, hasActed: false, fuel: Math.max(0, (unit.fuel ?? stats.fuel) - stats.fuelPerTurn) };
   });
+  const exhaustedTransportIds = new Set(refreshed
+    .filter((unit): unit is Unit & { position: Position } => isDeployedUnit(unit)
+      && unitStats[unit.kind].fuelPerTurn > 0
+      && (unit.fuel ?? unitStats[unit.kind].fuel) === 0)
+    .map(unit => unit.id));
+  const survivors = refreshed.filter(unit => !exhaustedTransportIds.has(unit.id)
+    && (!unit.embarkedIn || !exhaustedTransportIds.has(unit.embarkedIn)));
   return withEvaluatedWinner(collectIncome({
     ...progressed,
     activePlayer,
     turn: state.turn + (activePlayer === 'red' ? 1 : 0),
-    units: refreshed,
+    units: survivors,
   }), [], actor);
 }

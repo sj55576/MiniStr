@@ -204,7 +204,10 @@ function nearestTarget(position: Position, targets: readonly Position[]): Positi
 
 function needsSupply(unit: DeployedUnit): boolean {
   const stats = unitStats[unit.kind];
-  return (unit.fuel ?? stats.fuel) <= Math.max(6, Math.floor(stats.fuel / 3))
+  const fuel = unit.fuel ?? stats.fuel;
+  const fuelTurnsRemaining = stats.fuelPerTurn > 0 ? Math.ceil(fuel / stats.fuelPerTurn) : Infinity;
+  return fuelTurnsRemaining <= 2
+    || fuel <= Math.max(6, Math.floor(stats.fuel / 3))
     || ((unit.ammo ?? stats.ammo) > 0 && (unit.ammo ?? stats.ammo) <= Math.max(1, Math.floor(stats.ammo / 3)));
 }
 

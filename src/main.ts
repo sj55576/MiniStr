@@ -74,6 +74,12 @@ function unactedRedUnits(state: GameState): DeployedUnit[] {
   return state.units.filter((unit): unit is DeployedUnit => isDeployedUnit(unit) && unit.owner === 'red' && !unit.hasActed);
 }
 
+function fuelTurnsRemaining(unit: DeployedUnit): number | undefined {
+  const stats = unitStats[unit.kind];
+  if (stats.fuelPerTurn === 0) return undefined;
+  return Math.ceil((unit.fuel ?? stats.fuel) / stats.fuelPerTurn);
+}
+
 /** UI-only threat preview. It deliberately reuses the command layer's movement preview without changing game rules. */
 function enemyThreatPreview(state: GameState, unitId: string): { movement: Set<string>; attack: Set<string> } {
   const unit = state.units.find(candidate => candidate.id === unitId);
@@ -304,9 +310,15 @@ function render(): void {
     const facilityDetail = terrain.kind === 'port' ? '、補給・駆逐艦・輸送艦を生産可能' : terrain.kind === 'factory' ? '、補給・ユニット生産拠点' : '';
     const propertyLabel = isProperty ? `${terrainName}${propertyOwner ? `（${propertyOwner === 'red' ? '自軍' : '敵軍'}）` : '（中立）'}${capturePoints !== undefined ? `、占領値 ${capturePoints}` : ''}${facilityDetail}` : terrainName;
     const cargo = unit?.kind === 'landingShip' ? renderedGame.units.find(candidate => candidate.embarkedIn === unit.id) : undefined;
-    const unitLabel = unit && !hidden ? `${unit.owner === 'red' ? 'プレイヤー' : 'CPU'}の${unitNames[unit.kind]}、耐久 ${unit.hp}${cargo ? `、搭載 ${unitNames[cargo.kind]}` : ''}` : '';
+    // Fuel data stays private: only warn about the player's own units, never
+    // expose an enemy's exact reserve through a visible tile.
+    const fuelTurns = unit && isDeployedUnit(unit) && unit.owner === 'red' ? fuelTurnsRemaining(unit) : undefined;
+    const fuelWarning = fuelTurns !== undefined && fuelTurns <= 2
+      ? `、燃料警告: ${unit!.fuel ?? unitStats[unit!.kind].fuel}、補給まで残り ${fuelTurns} 行動機会`
+      : '';
+    const unitLabel = unit && !hidden ? `${unit.owner === 'red' ? 'プレイヤー' : 'CPU'}の${unitNames[unit.kind]}、耐久 ${unit.hp}${cargo ? `、搭載 ${unitNames[cargo.kind]}` : ''}${fuelWarning}` : '';
     const label = unit && !hidden
-      ? `<span class="unit ${unit.owner} unit-${unit.kind}" aria-hidden="true"><b>${unitTokens[unit.kind]}</b><small>${unit.hp}</small><em>${unitNames[unit.kind]}${cargo ? `・${unitNames[cargo.kind]}搭載` : ''}</em><i class="unit-owner-marker">${unit.owner === 'red' ? '自' : '敵'}</i>${cargo ? '<i class="cargo-marker">積</i>' : ''}</span>`
+      ? `<span class="unit ${unit.owner} unit-${unit.kind}" aria-hidden="true"><b>${unitTokens[unit.kind]}</b><small>${unit.hp}</small><em>${unitNames[unit.kind]}${cargo ? `・${unitNames[cargo.kind]}搭載` : ''}</em><i class="unit-owner-marker">${unit.owner === 'red' ? '自' : '敵'}</i>${cargo ? '<i class="cargo-marker">積</i>' : ''}${fuelWarning ? `<i class="fuel-warning">燃${fuelTurns}</i>` : ''}</span>`
       : '';
     const facility = isProperty && !hidden
       ? `<span class="facility facility-${terrain.kind} ${propertyOwner ?? 'neutral'}" aria-hidden="true"><b>${terrain.kind === 'city' ? '市' : terrain.kind === 'factory' ? '工' : terrain.kind === 'port' ? '港' : '司'}</b><small>${propertyOwner === 'red' ? '自軍' : propertyOwner === 'blue' ? '敵軍' : '中立'}${capturePoints !== undefined ? ` ${capturePoints}` : ''}</small></span>`
