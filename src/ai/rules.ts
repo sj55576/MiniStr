@@ -38,7 +38,7 @@ export type CpuAction =
   | { type: 'attack'; unitId: string; targetId: string }
   | { type: 'produce'; factory: Position; kind: UnitKind }
   | { type: 'move'; unitId: string; destination: Position }
-  | { type: 'embark'; unitId: string; transportId: string; }
+  | { type: 'embark'; unitId: string; transportId: string }
   | { type: 'disembark'; transportId: string; destination: Position }
   | { type: 'endTurn' };
 
@@ -218,8 +218,8 @@ export function evaluateCpuPosition(
   unit: DeployedUnit,
   destination: Position,
   targets: readonly Position[],
-  config: CpuDifficultyConfig = cpuDifficultyConfig.normal,
-  knownEnemies: readonly Unit[] = getVisibleEnemies(state, player),
+  config: CpuDifficultyConfig,
+  knownEnemies: readonly Unit[],
 ): number {
   const terrain = terrainAt(state.board, destination);
   if (!terrain) return Number.NEGATIVE_INFINITY;
