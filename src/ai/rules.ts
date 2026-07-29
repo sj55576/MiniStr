@@ -80,7 +80,7 @@ function interruptsCapture(state: GameState, player: PlayerId, target: Unit): bo
 
 function attackAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig, visibleTargets: readonly Unit[]): CpuAction | undefined {
   for (const attacker of orderedUnits(state, player)) {
-    if (attacker.hasActed) continue;
+    if (attacker.hasActed || (unitStats[attacker.kind].indirect && attacker.hasMoved)) continue;
     const target = visibleTargets
       .filter(unit => favorableAttack(state, attacker, unit, config))
       .sort((a, b) => {
