@@ -279,6 +279,24 @@ describe('Weighted movement, fuel, and capture recovery', () => {
     expect(visibleEnemies(result.value, 'red').map(unit => unit.id)).toContain('hidden');
   });
 
+  it('halts at the first hidden enemy encountered on a route to an otherwise empty tile', () => {
+    const state = createGameState(createBoard(6, 1));
+    state.units = [
+      { id: 'tank', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 70, hasMoved: false, hasActed: false },
+      { id: 'hidden', kind: 'infantry', owner: 'blue', position: { x: 4, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    expect(reachablePositionsForPlayer(state, 'tank', 'red')).toContainEqual({ x: 5, y: 0 });
+
+    const result = moveUnit(state, 'tank', { x: 5, y: 0 });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.units.find(unit => unit.id === 'tank')).toMatchObject({
+      position: { x: 3, y: 0 }, hasMoved: true, fuel: 67,
+    });
+    expect(visibleEnemies(result.value, 'red').map(unit => unit.id)).toContain('hidden');
+  });
+
   it('charges the terrain-weighted path cost, treating forest as two movement points', () => {
     const board = createBoard(3, 1);
     board.terrain[0]![1] = { kind: 'forest' };
