@@ -722,7 +722,7 @@ function moveSelectedUnit(destination: Position): boolean {
   const unitId = selected;
   if (!dispatch({ type: 'move', unitId, destination }, true)) return false;
   const finalPosition = game.units.find(unit => unit.id === unitId);
-  message = isDeployedUnit(finalPosition)
+  message = !!finalPosition && isDeployedUnit(finalPosition)
     && (finalPosition.position.x !== destination.x || finalPosition.position.y !== destination.y)
     ? '敵部隊を発見し、移動を中断しました。'
     : '移動しました。';
