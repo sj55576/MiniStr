@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, createScenarioInitialState, disembarkUnit, embarkUnit, endTurn, forecastCombat, getConditionProgress, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, reachablePositionsForPlayer, replayCommands, saveCustomScenario, saveGame, scenarioById, serializeReplay, terrainRules, unitAt, unitStats, type GameCommand, type GameState, type StorageLike } from './index';
+import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, createScenarioInitialState, disembarkUnit, embarkUnit, endTurn, forecastCombat, getConditionProgress, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, reachablePositionsForPlayer, replayCommands, saveCustomScenario, saveGame, scenarioById, serializeReplay, terrainRules, unitAt, unitStats, visibleEnemies, type GameCommand, type GameState, type StorageLike } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -261,6 +261,24 @@ describe('Weighted movement, fuel, and capture recovery', () => {
     expect(reachablePositionsForPlayer(state, 'scout', 'red')).toEqual(reachablePositionsForPlayer(withoutEnemy, 'scout', 'red'));
     expect(reachablePositions(state, 'scout')).not.toEqual(reachablePositions(withoutEnemy, 'scout'));
   });
+  it('stops before an initially hidden enemy instead of leaking it through a failed move', () => {
+    const state = createGameState(createBoard(4, 1));
+    state.units = [
+      { id: 'scout', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 99, hasMoved: false, hasActed: false },
+      { id: 'hidden', kind: 'tank', owner: 'blue', position: { x: 3, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    expect(reachablePositionsForPlayer(state, 'scout', 'red')).toContainEqual({ x: 3, y: 0 });
+
+    const result = moveUnit(state, 'scout', { x: 3, y: 0 });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.units.find(unit => unit.id === 'scout')).toMatchObject({
+      position: { x: 2, y: 0 }, hasMoved: true, fuel: 97,
+    });
+    expect(visibleEnemies(result.value, 'red').map(unit => unit.id)).toContain('hidden');
+  });
+
   it('charges the terrain-weighted path cost, treating forest as two movement points', () => {
     const board = createBoard(3, 1);
     board.terrain[0]![1] = { kind: 'forest' };
