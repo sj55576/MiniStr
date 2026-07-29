@@ -295,3 +295,15 @@ describe('CPU movement difficulty', () => {
     expect(chooseCpuAction(state, 'hard')).toEqual({ type: 'move', unitId: 'red-tank', destination: { x: 0, y: 0 } });
   });
 });
+
+
+describe('CPU indirect fire rule', () => {
+  it('does not issue an attack for a moved indirect unit', () => {
+    const state = createGameState(createBoard(4, 1));
+    state.units = [
+      { id: 'artillery', kind: 'artillery', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: true, hasActed: false },
+      { id: 'target', kind: 'tank', owner: 'blue', position: { x: 2, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    expect(chooseCpuAction(state)).not.toMatchObject({ type: 'attack' });
+  });
+});
