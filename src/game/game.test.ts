@@ -617,3 +617,36 @@ describe('Phase 6.4 transport save and replay compatibility', () => {
     expect(memory.value).toBeUndefined();
   });
 });
+
+
+describe('Fuel attrition away from owned properties', () => {
+  it('consumes offshore fuel, removes exhausted ships with cargo, and leaves scores unchanged', () => {
+    const state = createGameState(createBoard(3, 1, { kind: 'sea' }));
+    state.scores = { red: 4, blue: 7 };
+    state.units = [
+      { id: 'fighter', kind: 'fighter', owner: 'blue', position: { x: 0, y: 0 }, hp: 100, fuel: unitStats.fighter.fuelPerTurn, hasMoved: true, hasActed: true },
+      { id: 'ship', kind: 'landingShip', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, fuel: unitStats.landingShip.fuelPerTurn, hasMoved: true, hasActed: true },
+      { id: 'cargo', kind: 'infantry', owner: 'blue', embarkedIn: 'ship', hp: 100, hasMoved: true, hasActed: true },
+      { id: 'destroyer', kind: 'destroyer', owner: 'blue', position: { x: 2, y: 0 }, hp: 100, fuel: 3, hasMoved: true, hasActed: true },
+    ];
+
+    const next = endTurn(state);
+    expect(next.units.map(unit => unit.id)).toEqual(['destroyer']);
+    expect(next.units[0]?.fuel).toBe(1);
+    expect(next.scores).toEqual({ red: 4, blue: 7 });
+  });
+
+  it('resupplies at owned facilities while zero-fuel ground units remain deployed', () => {
+    const board = createBoard(2, 1);
+    board.terrain[0]![0] = { kind: 'factory', owner: 'blue' };
+    const state = createGameState(board);
+    state.units = [
+      { id: 'fighter', kind: 'fighter', owner: 'blue', position: { x: 0, y: 0 }, hp: 60, fuel: 1, ammo: 1, hasMoved: true, hasActed: true },
+      { id: 'tank', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, fuel: 0, hasMoved: true, hasActed: true },
+    ];
+
+    const next = endTurn(state);
+    expect(next.units.find(unit => unit.id === 'fighter')).toMatchObject({ fuel: unitStats.fighter.fuel, ammo: unitStats.fighter.ammo, hp: 80 });
+    expect(next.units.find(unit => unit.id === 'tank')).toMatchObject({ fuel: 0, position: { x: 1, y: 0 } });
+  });
+});
