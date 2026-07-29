@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  applyGameCommand, AUTO_SAVE_KEY, createBoard, createGameState, loadGame, MAX_SAVE_BYTES,
+  applyGameCommand, attackUnit, AUTO_SAVE_KEY, createBoard, createGameState, loadGame, MAX_SAVE_BYTES, moveUnit,
   parseSavedGame, replayCommands, saveGame, SAVE_SCHEMA_VERSION, type GameCommand,
   createScenarioInitialState, saveCustomScenario, scenarioById, type GameState, type StorageLike, unitStats,
 } from './index';
@@ -53,6 +53,38 @@ describe('Phase 5.1 command history', () => {
   it('reports the command index when replay contains an illegal action', () => {
     expect(replayCommands(withUnit(), [{ type: 'move', unitId: 'missing', destination: { x: 1, y: 0 } }]))
       .toEqual({ ok: false, error: 'Command 1: Unit not found' });
+  });
+});
+
+
+describe('indirect fire movement rule', () => {
+  it('blocks artillery and rockets from attacking after movement while preserving direct fire', () => {
+    const artilleryState = createGameState(createBoard(4, 1));
+    artilleryState.units = [
+      { id: 'artillery', kind: 'artillery', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'target', kind: 'tank', owner: 'blue', position: { x: 3, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    const movedArtillery = moveUnit(artilleryState, 'artillery', { x: 1, y: 0 });
+    expect(movedArtillery.ok).toBe(true);
+    if (!movedArtillery.ok) return;
+    expect(attackUnit(movedArtillery.value, 'artillery', 'target'))
+      .toEqual({ ok: false, error: 'Indirect units cannot attack after moving' });
+
+    const tankState = createGameState(createBoard(3, 1));
+    tankState.units = [
+      { id: 'tank', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'infantry', kind: 'infantry', owner: 'blue', position: { x: 2, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    const movedTank = moveUnit(tankState, 'tank', { x: 1, y: 0 });
+    expect(movedTank.ok).toBe(true);
+    if (!movedTank.ok) return;
+    expect(attackUnit(movedTank.value, 'tank', 'infantry').ok).toBe(true);
+  });
+
+  it('marks only artillery and rockets as indirect units', () => {
+    expect(unitStats.artillery.indirect).toBe(true);
+    expect(unitStats.rocket.indirect).toBe(true);
+    expect(unitStats.tank.indirect).toBe(false);
   });
 });
 

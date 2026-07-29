@@ -1,7 +1,7 @@
 import { forecastCombat, terrainDefenseReduction } from '../game/combat';
 import { reachablePositions } from '../game/commands';
 import { canProduceUnit, isPropertyTerrainKind } from '../game/facilities';
-import { visibleEnemies } from '../game/fog';
+import { visibleEnemies as getVisibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
 import { manhattanDistance, movementCost, terrainAt } from '../game/terrain';
 import { isDeployedUnit, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
@@ -42,6 +42,12 @@ export type CpuAction =
   | { type: 'disembark'; transportId: string; destination: Position }
   | { type: 'endTurn' };
 
+/** Derived information shared by every decision stage within one CPU order. */
+export interface CpuPlanningContext {
+  visibleEnemies: readonly Unit[];
+  targets: readonly Position[];
+}
+
 const propertyKinds = new Set(['city', 'factory', 'port', 'capital']);
 type StandardProductionKind = Extract<UnitKind, 'infantry' | 'tank' | 'artillery'>;
 const standardProductionKinds: readonly StandardProductionKind[] = ['infantry', 'tank', 'artillery'];
@@ -72,10 +78,9 @@ function interruptsCapture(state: GameState, player: PlayerId, target: Unit): bo
   return !!terrain && isPropertyTerrainKind(terrain.kind) && terrain.owner === player && (terrain.capturePoints ?? 20) < 20;
 }
 
-function attackAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
-  const visibleTargets = visibleEnemies(state, player);
+function attackAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig, visibleTargets: readonly Unit[]): CpuAction | undefined {
   for (const attacker of orderedUnits(state, player)) {
-    if (attacker.hasActed) continue;
+    if (attacker.hasActed || (unitStats[attacker.kind].indirect && attacker.hasMoved)) continue;
     const target = visibleTargets
       .filter(unit => favorableAttack(state, attacker, unit, config))
       .sort((a, b) => {
@@ -114,9 +119,9 @@ function emptyOwnedFacility(state: GameState, player: PlayerId, kind: UnitKind):
 }
 
 /** Production reacts only to confirmed units and board topology, never hidden enemies. */
-function specialistProduction(state: GameState, player: PlayerId): CpuAction | undefined {
+function specialistProduction(state: GameState, player: PlayerId, visibleEnemies: readonly Unit[]): CpuAction | undefined {
   const gold = state.players[player].gold;
-  const visible = visibleEnemies(state, player).filter(isDeployedUnit);
+  const visible = visibleEnemies.filter(isDeployedUnit);
   const hasSea = state.board.terrain.some(row => row.some(tile => tile.kind === 'sea'));
   const ownKinds = new Set(state.units.filter(unit => unit.owner === player).map(unit => unit.kind));
   const candidates: UnitKind[] = [];
@@ -132,8 +137,8 @@ function specialistProduction(state: GameState, player: PlayerId): CpuAction | u
   return undefined;
 }
 
-function productionAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
-  const targets = objectives(state, player, config);
+function productionAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig, context: CpuPlanningContext): CpuAction | undefined {
+  const { targets } = context;
   const hasRemoteInfantry = orderedUnits(state, player)
     .filter(unit => unit.kind === 'infantry')
     .some(unit => targets.some(target => !sameLandComponent(state, unit.position, target)));
@@ -142,7 +147,7 @@ function productionAction(state: GameState, player: PlayerId, config: CpuDifficu
     const port = emptyOwnedFacility(state, player, 'landingShip');
     if (port) return { type: 'produce', factory: port, kind: 'landingShip' };
   }
-  const specialist = specialistProduction(state, player);
+  const specialist = specialistProduction(state, player, context.visibleEnemies);
   if (specialist) return specialist;
   const kind = preferredProduction(state, player);
   if (!kind) return undefined;
@@ -150,7 +155,7 @@ function productionAction(state: GameState, player: PlayerId, config: CpuDifficu
   return factory ? { type: 'produce', factory, kind } : undefined;
 }
 
-function objectives(state: GameState, player: PlayerId, config: CpuDifficultyConfig): Position[] {
+function objectives(state: GameState, player: PlayerId, config: CpuDifficultyConfig, visibleEnemies: readonly Unit[]): Position[] {
   const capitals: Position[] = [];
   const properties: Position[] = [];
   for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
@@ -159,7 +164,7 @@ function objectives(state: GameState, player: PlayerId, config: CpuDifficultyCon
     (tile.kind === 'capital' ? capitals : properties).push({ x, y });
   }
   // Enemy formations participate only after reconnaissance has revealed them.
-  const enemies = visibleEnemies(state, player).filter(isDeployedUnit).map(unit => unit.position);
+  const enemies = visibleEnemies.filter(isDeployedUnit).map(unit => unit.position);
   return config.prioritizeCapital ? [...capitals, ...properties, ...enemies] : [...properties, ...capitals, ...enemies];
 }
 
@@ -213,7 +218,8 @@ export function evaluateCpuPosition(
   unit: DeployedUnit,
   destination: Position,
   targets: readonly Position[],
-  config: CpuDifficultyConfig = cpuDifficultyConfig.normal,
+  config: CpuDifficultyConfig,
+  knownEnemies: readonly Unit[],
 ): number {
   const terrain = terrainAt(state.board, destination);
   if (!terrain) return Number.NEGATIVE_INFINITY;
@@ -224,14 +230,14 @@ export function evaluateCpuPosition(
   const defense = terrainDefenseReduction(terrain, unit.hp) * 0.9 * config.terrainDefenseWeight;
   const supply = needsSupply(unit) && isPropertyTerrainKind(terrain.kind) && terrain.owner === player ? 80 : 0;
   const distance = targets.length ? Math.min(...targets.map(target => manhattanDistance(destination, target))) : 0;
-  const pressure = visibleEnemies(state, player).filter(isDeployedUnit).reduce((risk, enemy) => {
+  const deployedEnemies = knownEnemies.filter(isDeployedUnit);
+  const pressure = deployedEnemies.reduce((risk, enemy) => {
     const forecast = forecastCombat(projected, enemy, moved);
     return risk + (forecast.ok ? forecast.value.damageToDefender * 1.4 : 0);
   }, 0);
-  const captureThreat = visibleEnemies(state, player).some(enemy => interruptsCapture(state, player, enemy))
-    ? visibleEnemies(state, player).filter((enemy): enemy is DeployedUnit => isDeployedUnit(enemy) && interruptsCapture(state, player, enemy))
-      .reduce((best, enemy) => Math.min(best, manhattanDistance(destination, enemy.position)), Infinity)
-    : Infinity;
+  const captureThreat = deployedEnemies
+    .filter(enemy => interruptsCapture(state, player, enemy))
+    .reduce((best, enemy) => Math.min(best, manhattanDistance(destination, enemy.position)), Infinity);
   const response = Number.isFinite(captureThreat) ? Math.max(0, 36 - captureThreat * 7) : 0;
   // Below 50 HP, increasing pressure is especially undesirable while cover becomes
   // more valuable. This creates a genuine retreat preference without hiding the
@@ -246,8 +252,7 @@ export function evaluateCpuPosition(
 }
 
 /** Choose one transport step before ordinary movement so island objectives are never stranded. */
-function transportAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
-  const targets = objectives(state, player, config);
+function transportAction(state: GameState, player: PlayerId, targets: readonly Position[]): CpuAction | undefined {
   if (!targets.length) return undefined;
   const units = orderedUnits(state, player);
 
@@ -289,19 +294,25 @@ function transportAction(state: GameState, player: PlayerId, config: CpuDifficul
   return undefined;
 }
 
-function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuAction | undefined {
-  const targets = objectives(state, player, config);
+function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyConfig, context: CpuPlanningContext): CpuAction | undefined {
+  const { targets } = context;
   if (!targets.length) return undefined;
   for (const unit of orderedUnits(state, player)) {
     if (unit.hasMoved) continue;
     // Advance across the unit's whole movement range (Dijkstra reachability), weighing cover,
     // resupply and visible counterattack risk instead of raw distance alone.
     const destination = reachablePositions(state, unit.id)
-      .map(position => ({ position, score: evaluateCpuPosition(state, player, unit, position, targets, config) }))
+      .map(position => ({ position, score: evaluateCpuPosition(state, player, unit, position, targets, config, context.visibleEnemies) }))
       .sort((a, b) => b.score - a.score || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
     if (destination) return { type: 'move', unitId: unit.id, destination };
   }
   return undefined;
+}
+
+/** Build immutable, fog-safe data once for the current CPU order. */
+export function createCpuPlanningContext(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuPlanningContext {
+  const visibleEnemies = getVisibleEnemies(state, player);
+  return { visibleEnemies, targets: objectives(state, player, config, visibleEnemies) };
 }
 
 /** Select the next legal high-level CPU order. The caller applies it with the game command layer. */
@@ -310,9 +321,10 @@ export function chooseCpuAction(state: GameState, difficulty: CpuDifficulty = 'n
   const config = cpuDifficultyConfig[difficulty];
   const capture = orderedUnits(state, player).find(unit => canCapture(state, unit));
   if (capture) return { type: 'capture', unitId: capture.id };
-  return attackAction(state, player, config)
-    ?? transportAction(state, player, config)
-    ?? productionAction(state, player, config)
-    ?? moveAction(state, player, config)
+  const context = createCpuPlanningContext(state, player, config);
+  return attackAction(state, player, config, context.visibleEnemies)
+    ?? transportAction(state, player, context.targets)
+    ?? productionAction(state, player, config, context)
+    ?? moveAction(state, player, config, context)
     ?? { type: 'endTurn' };
 }

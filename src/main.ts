@@ -355,14 +355,16 @@ function render(): void {
   const transportAction = !replayMode && (embarkTargets.length || cargo)
     ? `<section class="transport-card"><p class="card-kicker">LANDING OPERATION</p><strong>${cargo ? `${unitNames[cargo.kind]}を搭載中` : '輸送艦への乗船'}</strong><span>${cargo ? '隣接する陸地を選んで上陸させます。' : '隣接する空の輸送艦を選んで乗船させます。'}</span>${embarkTargets.map(unit => `<button class="transport-action embark" data-transport-id="${unit.id}">${unitNames[unit.kind]}に乗船</button>`).join('')}${landingTargets.map(position => `<button class="transport-action disembark" data-x="${position.x}" data-y="${position.y}">(${position.x + 1}, ${position.y + 1}) に上陸</button>`).join('')}${cargo && landingTargets.length === 0 ? '<em class="transport-note">上陸できる隣接陸地がありません。</em>' : ''}</section>`
     : '';
-  const forecasts = !replayMode && selectedUnit && selectedUnit.owner === renderedGame.activePlayer
+  const indirectFireBlocked = !replayMode && selectedUnit?.owner === renderedGame.activePlayer
+    && unitStats[selectedUnit.kind].indirect && selectedUnit.hasMoved && !selectedUnit.hasActed;
+  const forecasts = !replayMode && selectedUnit && selectedUnit.owner === renderedGame.activePlayer && !indirectFireBlocked
     ? visibleEnemies(renderedGame, selectedUnit.owner).map(enemy => ({ enemy, forecast: forecastCombat(renderedGame, selectedUnit, enemy) })).filter((item): item is { enemy: typeof item.enemy; forecast: Extract<typeof item.forecast, { ok: true }> } => item.forecast.ok)
     : [];
-  const forecastCard = forecasts.length > 0 ? `<section class="forecast-card"><p class="card-kicker">戦闘予測</p>${forecasts.map(({ enemy, forecast }) => {
+  const forecastCard = forecasts.length > 0 || indirectFireBlocked ? `<section class="forecast-card"><p class="card-kicker">戦闘予測</p>${forecasts.map(({ enemy, forecast }) => {
     const outgoing = damageRange(forecast.value.damageToDefender);
     const incoming = forecast.value.canCounter ? damageRange(forecast.value.damageToAttacker) : undefined;
     return `<div class="forecast-row"><span>${unitNames[enemy.kind]}（耐久 ${enemy.hp}）</span><span class="forecast-damage">与 ${outgoing.min}〜${outgoing.max}</span><span class="forecast-counter">被 ${incoming ? `${incoming.min}〜${incoming.max}` : 'なし'}</span></div>`;
-  }).join('')}${selectedUnit!.hasActed ? '<p class="forecast-note">このユニットは行動済みです。</p>' : ''}</section>` : '';
+  }).join('')}${indirectFireBlocked ? '<p class="forecast-note">間接砲は移動したターンに射撃できません。</p>' : selectedUnit!.hasActed ? '<p class="forecast-note">このユニットは行動済みです。</p>' : ''}</section>` : '';
   const summaryResult = !replayMode && renderedGame.winner ? summarizeReplay(initialState, commandHistory, renderedMap.id, difficulty) : undefined;
   const summary = summaryResult?.ok ? summaryResult.value : undefined;
   const campaignResult = campaignRun && campaignOutcome
