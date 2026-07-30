@@ -83,7 +83,7 @@ function fuelTurnsRemaining(unit: DeployedUnit): number | undefined {
 /** UI-only threat preview. It deliberately reuses the command layer's movement preview without changing game rules. */
 function enemyThreatPreview(state: GameState, unitId: string): { movement: Set<string>; attack: Set<string> } {
   const unit = state.units.find(candidate => candidate.id === unitId);
-  if (!unit || !isDeployedUnit(unit) || unit.owner !== 'blue' || unit.hasActed || unitStats[unit.kind].attack <= 0) {
+  if (!unit || !isDeployedUnit(unit) || unit.owner !== 'blue' || unitStats[unit.kind].attack <= 0) {
     return { movement: new Set(), attack: new Set() };
   }
   const movement = new Set<string>();
@@ -397,12 +397,13 @@ function render(): void {
   const unactedUnits = !replayMode && renderedGame.activePlayer === 'red' ? unactedRedUnits(renderedGame) : [];
   const unitQueuePanel = !replayMode ? `<section class="unit-queue-card" aria-labelledby="unit-queue-title"><div><p class="card-kicker">UNIT STATUS</p><h2 id="unit-queue-title">未行動部隊 <strong>${unactedUnits.length}</strong></h2></div>${unactedUnits.length ? `<ol>${unactedUnits.map(unit => `<li><button class="unit-queue-item" data-unit-id="${unit.id}" aria-label="${unitNames[unit.kind]}、耐久 ${unit.hp}、マス ${unit.position.x + 1}、${unit.position.y + 1} を選択"><span aria-hidden="true">${unitTokens[unit.kind]}</span>${unitNames[unit.kind]} <em>${unit.hp}</em></button></li>`).join('')}</ol><button id="next-unit" class="save-action" ${renderedGame.activePlayer === 'red' ? '' : 'disabled'}>次の未行動部隊 <kbd>N</kbd></button>` : '<p class="unit-queue-empty">未行動の自軍ユニットはありません。</p>'}</section>` : '';
   const turnSetting = !replayMode ? `<section class="turn-setting"><label><input id="confirm-end-turn" type="checkbox" ${confirmEndTurnWithUnacted ? 'checked' : ''}> 未行動部隊がいる時にターン終了を確認する</label></section>` : '';
-  const campaignCards = campaignStages.map((stage, index) => {
-    const map = maps.find(candidate => candidate.id === stage.scenarioId)!;
-    const unlocked = isCampaignScenarioUnlocked(campaignProgress, stage.scenarioId);
+  const campaignCards = campaignMenuOpen ? campaignStages.map((stage, index) => {
+    const map = maps.find(candidate => candidate.id === stage.scenarioId);
+    const unlocked = !!map && isCampaignScenarioUnlocked(campaignProgress, stage.scenarioId);
     const grade = campaignProgress.bestGrades[stage.scenarioId];
+    if (!map) return `<article class="campaign-stage locked"><div class="campaign-stage-number">0${index + 1}</div><div><p class="card-kicker">UNAVAILABLE</p><h3>作戦データを読み込めません</h3><p>組み込みシナリオの読み込みに失敗したため、この作戦は開始できません。</p><span>推奨 ${stage.recommendedTurns} ターン</span></div><button class="save-action" disabled>利用不可</button></article>`;
     return `<article class="campaign-stage ${unlocked ? '' : 'locked'}"><div class="campaign-stage-number">0${index + 1}</div><div><p class="card-kicker">${grade ? 'CLEARED' : unlocked ? 'OPEN' : 'LOCKED'}</p><h3>${escapeHtml(map.name)}</h3><p>${escapeHtml(map.briefing)}</p><span>推奨 ${stage.recommendedTurns} ターン</span></div>${grade ? `<strong class="campaign-grade grade-${grade.toLowerCase()}">${grade}</strong>` : ''}<button class="save-action campaign-start" data-campaign-id="${stage.scenarioId}" ${unlocked ? '' : 'disabled'}>${grade ? '再出撃' : '作戦開始'}</button></article>`;
-  }).join('');
+  }).join('') : '';
   const campaignOverlay = campaignMenuOpen ? `<div class="campaign-overlay" role="dialog" aria-modal="true" aria-labelledby="campaign-title"><section class="campaign-screen"><div class="campaign-heading"><div><p class="card-kicker">MINI CAMPAIGN</p><h2 id="campaign-title">国境戦役</h2><p>4つの戦場を勝ち抜き、最高評価を目指してください。</p></div><div class="campaign-heading-actions"><button id="campaign-skirmish" class="save-action">単体戦へ</button><button id="campaign-close" class="save-action">閉じる</button></div></div>${campaignNotice ? `<p class="campaign-notice" aria-live="polite">${escapeHtml(campaignNotice)}</p>` : ''}<div class="campaign-grid">${campaignCards}</div></section></div>` : '';
   const editorVictory = editor.data.victoryConditions[0] ?? { type: 'captureCapital' as const };
   const editorVictoryTarget = editorVictory.type === 'hold' ? editorVictory.turns : editorVictory.type === 'survive' ? editorVictory.untilTurn : editorVictory.type === 'score' ? editorVictory.target : 1;
