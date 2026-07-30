@@ -120,6 +120,11 @@ describe('campaign persistence validation', () => {
     expect(storage.data.has(CAMPAIGN_STORAGE_KEY)).toBe(true);
   });
 
+  it('migrates valid v1 campaign progress', () => {
+    const legacy = { ...createCampaignProgress(NOW), schemaVersion: 1 };
+    expect(parseCampaignProgress(JSON.stringify(legacy))).toEqual({ ok: true, value: createCampaignProgress(NOW) });
+  });
+
   it('rejects malformed, unsupported, non-contiguous, reordered, and inconsistent progress', () => {
     expect(parseCampaignProgress('{broken').ok).toBe(false);
     expect(parseCampaignProgress(JSON.stringify({ schemaVersion: 999 })).ok).toBe(false);
