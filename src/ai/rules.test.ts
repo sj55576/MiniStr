@@ -309,13 +309,17 @@ describe('CPU indirect fire rule', () => {
 });
 
 describe('CPU command legality and hidden movement', () => {
-  it('does not move a unit that has already acted', () => {
-    const board = createBoard(4, 1);
-    board.terrain[0]![3] = { kind: 'capital', owner: 'blue' };
+  it('skips an acted unit and emits a legal move for a remaining unit', () => {
+    const board = createBoard(5, 1);
+    board.terrain[0]![4] = { kind: 'capital', owner: 'blue' };
     const state = stateWith(createGameState(board), { units: [
       { id: 'spent', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: true },
+      { id: 'ready', kind: 'infantry', owner: 'red', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
     ] });
-    expect(chooseCpuAction(state)).toEqual({ type: 'endTurn' });
+    const action = chooseCpuAction(state);
+
+    expect(action).toMatchObject({ type: 'move', unitId: 'ready' });
+    expect(applyGameCommand(state, action).ok).toBe(true);
   });
 
   it('plans through hidden enemy blockers and safely stops on first contact', () => {
