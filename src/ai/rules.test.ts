@@ -309,6 +309,21 @@ describe('CPU indirect fire rule', () => {
 });
 
 describe('CPU command legality and hidden movement', () => {
+  it('can wait in place when the current position has the best score', () => {
+    const board = createBoard(6, 1);
+    board.terrain[0]![0] = { kind: 'capital', owner: 'red', capturePoints: 20 };
+    board.terrain[0]![5] = { kind: 'capital', owner: 'blue', capturePoints: 20 };
+    const state = stateWith(createGameState(board), { units: [
+      { id: 'tank', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 20, hasMoved: false, hasActed: false },
+      { id: 'threat', kind: 'tank', owner: 'blue', position: { x: 3, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ] });
+
+    const action = chooseCpuAction(state, 'hard');
+    expect(action).toEqual({ type: 'move', unitId: 'tank', destination: { x: 0, y: 0 } });
+    const applied = applyGameCommand(state, action);
+    expect(applied.ok && applied.value.units.find(unit => unit.id === 'tank')).toMatchObject({ position: { x: 0, y: 0 }, hasMoved: true });
+  });
+
   it('skips an acted unit and emits a legal move for a remaining unit', () => {
     const board = createBoard(5, 1);
     board.terrain[0]![4] = { kind: 'capital', owner: 'blue' };
