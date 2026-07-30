@@ -120,3 +120,21 @@ describe('Counterattack ammunition', () => {
   });
 });
 
+
+describe('Indirect-fire counterattack rules', () => {
+  it('never allows an indirect unit to counterattack', () => {
+    const state = createGameState(createBoard(4, 1));
+    const result = forecastCombat(state,
+      { id: 'rocket', kind: 'rocket', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 5, hasMoved: false, hasActed: false },
+      { id: 'artillery', kind: 'artillery', owner: 'blue', position: { x: 3, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false });
+    expect(result.ok && result.value).toMatchObject({ canCounter: false, damageToAttacker: 0 });
+  });
+
+  it('does not allow a counterattack after an indirect strike', () => {
+    const state = createGameState(createBoard(4, 1));
+    const result = forecastCombat(state,
+      { id: 'artillery', kind: 'artillery', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+      { id: 'rocket', kind: 'rocket', owner: 'blue', position: { x: 3, y: 0 }, hp: 100, ammo: 5, hasMoved: false, hasActed: false });
+    expect(result.ok && result.value).toMatchObject({ canCounter: false, damageToAttacker: 0 });
+  });
+});

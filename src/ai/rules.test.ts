@@ -307,3 +307,28 @@ describe('CPU indirect fire rule', () => {
     expect(chooseCpuAction(state)).not.toMatchObject({ type: 'attack' });
   });
 });
+
+describe('CPU command legality and hidden movement', () => {
+  it('does not move a unit that has already acted', () => {
+    const board = createBoard(4, 1);
+    board.terrain[0]![3] = { kind: 'capital', owner: 'blue' };
+    const state = stateWith(createGameState(board), { units: [
+      { id: 'spent', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: true },
+    ] });
+    expect(chooseCpuAction(state)).toEqual({ type: 'endTurn' });
+  });
+
+  it('plans through hidden enemy blockers and safely stops on first contact', () => {
+    const board = createBoard(7, 1);
+    board.terrain[0]![6] = { kind: 'capital', owner: 'blue' };
+    const base = stateWith(createGameState(board), { units: [
+      { id: 'tank', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+    ] });
+    const concealed = stateWith(base, { units: [...base.units, { id: 'hidden', kind: 'infantry', owner: 'blue', position: { x: 4, y: 0 }, hp: 100, hasMoved: false, hasActed: false }] });
+    const action = chooseCpuAction(concealed);
+    expect(action).toEqual(chooseCpuAction(base));
+    const result = applyGameCommand(concealed, action);
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value.units.find(unit => unit.id === 'tank')).toMatchObject({ position: { x: 3, y: 0 } });
+  });
+});

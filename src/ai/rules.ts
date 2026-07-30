@@ -1,5 +1,5 @@
 import { forecastCombat, terrainDefenseReduction } from '../game/combat';
-import { reachablePositions } from '../game/commands';
+import { reachablePositionsForPlayer } from '../game/commands';
 import { canProduceUnit, isPropertyTerrainKind } from '../game/facilities';
 import { visibleEnemies as getVisibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
@@ -284,12 +284,12 @@ function transportAction(state: GameState, player: PlayerId, targets: readonly P
 
   // Carry cargo toward the closest remote objective. This is finite because it only accepts a strict
   // Manhattan-distance improvement; otherwise normal actions/end-turn take over.
-  for (const transport of units.filter(unit => unit.kind === 'landingShip' && !unit.hasMoved)) {
+  for (const transport of units.filter(unit => unit.kind === 'landingShip' && !unit.hasMoved && !unit.hasActed)) {
     if (!state.units.some(unit => unit.embarkedIn === transport.id)) continue;
     const target = nearestTarget(transport.position, targets);
     if (!target) continue;
     const currentDistance = manhattanDistance(transport.position, target);
-    const destination = reachablePositions(state, transport.id)
+    const destination = reachablePositionsForPlayer(state, transport.id, player)
       .filter(position => manhattanDistance(position, target) < currentDistance)
       .sort((a, b) => manhattanDistance(a, target) - manhattanDistance(b, target) || a.y - b.y || a.x - b.x)[0];
     if (destination) return { type: 'move', unitId: transport.id, destination };
@@ -301,10 +301,10 @@ function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyCon
   const { targets } = context;
   if (!targets.length) return undefined;
   for (const unit of orderedUnits(state, player)) {
-    if (unit.hasMoved) continue;
+    if (unit.hasMoved || unit.hasActed) continue;
     // Advance across the unit's whole movement range (Dijkstra reachability), weighing cover,
     // resupply and visible counterattack risk instead of raw distance alone.
-    const destination = reachablePositions(state, unit.id)
+    const destination = reachablePositionsForPlayer(state, unit.id, player)
       .map(position => ({ position, score: evaluateCpuPosition(state, player, unit, position, targets, config, context.visibleEnemies) }))
       .sort((a, b) => b.score - a.score || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
     if (destination) return { type: 'move', unitId: unit.id, destination };

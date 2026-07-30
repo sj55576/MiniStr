@@ -32,7 +32,9 @@ export function moveUnit(state: GameState, unitId: string, destination: Position
   }
   if (unitAt(state, finalDestination)) return fail('Destination is occupied');
   const fuel = (unit.fuel ?? unitStats[unit.kind].fuel) - spent;
-  const board = samePosition(unit.position, finalDestination) ? state.board : releaseCaptureProgress(state.board, unit);
+  const board = samePosition(unit.position, finalDestination)
+    ? state.board
+    : restoreCaptureProgressAt(releaseCaptureProgress(state.board, unit), finalDestination);
   return succeed({ ...state, board, units: state.units.map(candidate => candidate.id === unitId ? { ...candidate, position: { ...finalDestination }, hasMoved: true, fuel } : candidate) });
 }
 
@@ -148,12 +150,16 @@ export function reachablePositionsForPlayer(state: GameState, unitId: string, vi
   return reachablePositions(preview, unitId);
 }
 
+/** Restores a property whenever the unit that was working on it leaves, is removed, or is displaced. */
+function restoreCaptureProgressAt(board: GameState['board'], position: Position) {
+  const tile = terrainAt(board, position);
+  if (!tile || !isPropertyTerrainKind(tile.kind) || tile.capturePoints === undefined || tile.capturePoints >= 20) return board;
+  return { ...board, terrain: board.terrain.map((row, y) => row.map((cell, x) => samePosition({ x, y }, position) ? { ...cell, capturePoints: 20 } : cell)) };
+}
+
 /** When a unit leaves a property it was partway through capturing, the property recovers to full. */
 function releaseCaptureProgress(board: GameState['board'], unit: GameState['units'][number]) {
-  if (!isDeployedUnit(unit)) return board;
-  const tile = terrainAt(board, unit.position);
-  if (!tile || !isPropertyTerrainKind(tile.kind) || tile.owner === unit.owner || tile.capturePoints === undefined || tile.capturePoints >= 20) return board;
-  return { ...board, terrain: board.terrain.map((row, y) => row.map((cell, x) => samePosition({ x, y }, unit.position) ? { ...cell, capturePoints: 20 } : cell)) };
+  return isDeployedUnit(unit) ? restoreCaptureProgressAt(board, unit.position) : board;
 }
 
 export function collectIncome(state: GameState): GameState {
@@ -212,7 +218,8 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
   const damageToDefender = applyDamageVariance(forecast.value.damageToDefender, attackRoll.value);
   // Counterattack damage must use the defender's actual post-roll HP.  A unit
   // that the expected forecast destroys can still survive a low damage roll.
-  const counterForecast = defender.hp > damageToDefender
+  const counterForecast = !unitStats[attacker.kind].indirect && !unitStats[defender.kind].indirect
+    && defender.hp > damageToDefender
     ? forecastCombat(state, { ...defender, hp: defender.hp - damageToDefender }, attacker)
     : undefined;
   const canCounter = counterForecast?.ok ?? false;
@@ -228,7 +235,10 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
   });
   const destroyedUnitIds = new Set(damagedUnits.filter(unit => unit.hp <= 0).map(unit => unit.id));
   const nextUnits = damagedUnits.filter(unit => unit.hp > 0 && (!unit.embarkedIn || !destroyedUnitIds.has(unit.embarkedIn)));
-  const next = updateScenarioScores(state, { ...state, units: nextUnits, rngSeed });
+  const board = state.units
+    .filter((unit): unit is Unit & { position: Position } => destroyedUnitIds.has(unit.id) && isDeployedUnit(unit))
+    .reduce((currentBoard, unit) => restoreCaptureProgressAt(currentBoard, unit.position), state.board);
+  const next = updateScenarioScores(state, { ...state, board, units: nextUnits, rngSeed });
   return succeed(withEvaluatedWinner(next, [{ type: 'eliminate' }]));
 }
 
@@ -293,8 +303,8 @@ export function endTurn(state: GameState): GameState {
     return { ...unit, hasMoved: false, hasActed: false, fuel: Math.max(0, (unit.fuel ?? stats.fuel) - stats.fuelPerTurn) };
   });
   const exhaustedTransportIds = new Set(refreshed
-    .filter((unit): unit is Unit & { position: Position } => isDeployedUnit(unit)
-      && unitStats[unit.kind].fuelPerTurn > 0
+    .filter((unit): unit is Unit & { position: Position } => unit.owner === activePlayer
+      && isDeployedUnit(unit) && unitStats[unit.kind].fuelPerTurn > 0
       && (unit.fuel ?? unitStats[unit.kind].fuel) === 0)
     .map(unit => unit.id));
   const survivors = refreshed.filter(unit => !exhaustedTransportIds.has(unit.id)
