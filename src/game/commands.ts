@@ -218,7 +218,8 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
   const damageToDefender = applyDamageVariance(forecast.value.damageToDefender, attackRoll.value);
   // Counterattack damage must use the defender's actual post-roll HP.  A unit
   // that the expected forecast destroys can still survive a low damage roll.
-  const counterForecast = forecast.value.canCounter && defender.hp > damageToDefender
+  const counterForecast = !unitStats[attacker.kind].indirect && !unitStats[defender.kind].indirect
+    && defender.hp > damageToDefender
     ? forecastCombat(state, { ...defender, hp: defender.hp - damageToDefender }, attacker)
     : undefined;
   const canCounter = counterForecast?.ok ?? false;
