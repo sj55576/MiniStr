@@ -10,7 +10,7 @@ import { type GameResult, type GameState, type PlayerId } from './types';
  * replays remain valid.  Invalid cargo links are rejected by `isGameState` and
  * are never inferred or repaired while importing a replay.
  */
-export const REPLAY_SCHEMA_VERSION = 1 as const;
+export const REPLAY_SCHEMA_VERSION = 2 as const;
 export const MAX_REPLAY_BYTES = 1_000_000;
 const MAX_REPLAY_COMMANDS = 100_000;
 
@@ -34,6 +34,16 @@ export interface ReplayFile {
   finalState: GameState;
   summary: ReplaySummary;
   createdAt: string;
+}
+
+function migrateReplayV1ToV2(value: Record<string, unknown>): Record<string, unknown> {
+  return { ...structuredClone(value), schemaVersion: REPLAY_SCHEMA_VERSION };
+}
+
+function migrateReplay(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (value.schemaVersion === REPLAY_SCHEMA_VERSION) return value;
+  if (value.schemaVersion === 1) return migrateReplayV1ToV2(value);
+  return undefined;
 }
 
 export interface ReplayInput {
@@ -235,9 +245,10 @@ export function parseReplay(serialized: string): GameResult<ReplayFile> {
   try { value = JSON.parse(serialized); }
   catch { return { ok: false, error: 'リプレイデータが壊れています。' }; }
   if (!isRecord(value)) return { ok: false, error: 'リプレイデータの形式が不正です。' };
-  if (value.schemaVersion !== REPLAY_SCHEMA_VERSION)
+  const migrated = migrateReplay(value);
+  if (!migrated)
     return { ok: false, error: '未対応のリプレイデータです。' };
-  if (!validateReplayShape(value)) return { ok: false, error: 'リプレイデータの内容が不正です。' };
-  try { return validateReplayConsistency(value); }
+  if (!validateReplayShape(migrated)) return { ok: false, error: 'リプレイデータの内容が不正です。' };
+  try { return validateReplayConsistency(migrated); }
   catch { return { ok: false, error: 'リプレイデータの内容が不正です。' }; }
 }
