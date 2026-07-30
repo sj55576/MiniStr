@@ -686,3 +686,49 @@ describe('Fuel attrition away from owned properties', () => {
     expect(next.units.find(unit => unit.id === 'tank')).toMatchObject({ fuel: 0, position: { x: 1, y: 0 } });
   });
 });
+
+describe('Capture interruption and fuel timing', () => {
+  it('restores capture progress when another unit enters a partially captured property', () => {
+    const board = createBoard(2, 1);
+    board.terrain[0]![0] = { kind: 'city', capturePoints: 20 };
+    const state = createGameState(board);
+    state.units = [{ id: 'red', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false }];
+    const captured = captureProperty(state, 'red');
+    expect(captured.ok && captured.value.board.terrain[0]![0]?.capturePoints).toBe(10);
+    if (!captured.ok) return;
+    const interrupted = moveUnit({ ...captured.value, activePlayer: 'blue', units: [{ id: 'blue', kind: 'infantry', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false }] }, 'blue', { x: 0, y: 0 });
+    expect(interrupted.ok && interrupted.value.board.terrain[0]![0]).toMatchObject({ capturePoints: 20 });
+  });
+
+  it('restores capture progress when the capturing unit is destroyed', () => {
+    const board = createBoard(2, 1);
+    board.terrain[0]![0] = { kind: 'city', capturePoints: 20 };
+    const state = createGameState(board);
+    state.units = [{ id: 'red', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false }];
+    const captured = captureProperty(state, 'red');
+    if (!captured.ok) return;
+    const attacked = attackUnit({ ...captured.value, activePlayer: 'blue', units: [
+      { id: 'red', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 1, hasMoved: false, hasActed: true },
+      { id: 'blue', kind: 'tank', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, ammo: 6, hasMoved: false, hasActed: false },
+    ] }, 'blue', 'red');
+    expect(attacked.ok && attacked.value.board.terrain[0]![0]).toMatchObject({ capturePoints: 20 });
+  });
+
+  it('keeps a zero-fuel unit alive until its own next turn, then resupplies it on an owned property', () => {
+    const board = createBoard(1, 1, { kind: 'city', owner: 'red' });
+    const state = createGameState(board);
+    state.units = [{ id: 'fighter', kind: 'fighter', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 0, hasMoved: true, hasActed: true }];
+    const afterRedEnds = endTurn(state);
+    expect(afterRedEnds.units.find(unit => unit.id === 'fighter')).toBeDefined();
+    const afterBlueEnds = endTurn(afterRedEnds);
+    expect(afterBlueEnds.units.find(unit => unit.id === 'fighter')?.fuel).toBe(unitStats.fighter.fuel);
+  });
+
+  it('removes an exhausted aircraft only when it next becomes active away from a property', () => {
+    const state = createGameState(createBoard(1, 1));
+    state.units = [{ id: 'fighter', kind: 'fighter', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 0, hasMoved: true, hasActed: true }];
+    const afterRedEnds = endTurn(state);
+    expect(afterRedEnds.units.find(unit => unit.id === 'fighter')).toBeDefined();
+    expect(endTurn(afterRedEnds).units.find(unit => unit.id === 'fighter')).toBeUndefined();
+  });
+});
