@@ -4,12 +4,10 @@ import { terrainKindSet, type GameResult, type GameState, type Position, type Un
 import { isEmbarkableUnit, transportCapacity, unitKindSet } from './units';
 
 /**
- * Schema v1 is additive: `Unit.embarkedIn` is optional, so saves created before
- * landing ships (where every unit has a position) remain valid.  Bump this only
- * for an incompatible serialized shape; malformed cargo is rejected by
- * `isGameState` instead of being repaired during load.
+ * Schema v2 establishes an explicit migration hop. Malformed cargo is rejected
+ * by `isGameState` instead of being repaired during load.
  */
-export const SAVE_SCHEMA_VERSION = 1 as const;
+export const SAVE_SCHEMA_VERSION = 2 as const;
 export const MAX_SAVE_BYTES = 1_000_000;
 export const MANUAL_SAVE_KEY = 'ministr.save.manual';
 export const AUTO_SAVE_KEY = 'ministr.save.auto';
@@ -33,6 +31,17 @@ export interface SavedGame {
   /** Present only when this save belongs to an active campaign battle. */
   campaignScenarioId?: string;
   savedAt: string;
+}
+
+/** v1 had the same fields; keeping this named migration makes later changes append-only. */
+function migrateSaveV1ToV2(value: Record<string, unknown>): Record<string, unknown> {
+  return { ...structuredClone(value), schemaVersion: SAVE_SCHEMA_VERSION };
+}
+
+function migrateSavedGame(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (value.schemaVersion === SAVE_SCHEMA_VERSION) return value;
+  if (value.schemaVersion === 1) return migrateSaveV1ToV2(value);
+  return undefined;
 }
 
 export interface StorageLike {
@@ -212,9 +221,10 @@ export function parseSavedGame(serialized: string): GameResult<SavedGame> {
   try { value = JSON.parse(serialized); }
   catch { return { ok: false, error: 'セーブデータが壊れています。' }; }
   if (!isRecord(value)) return { ok: false, error: 'セーブデータの形式が不正です。' };
-  if (value.schemaVersion !== SAVE_SCHEMA_VERSION) return { ok: false, error: '未対応のセーブデータです。' };
-  if (!validateSavedGameShape(value)) return { ok: false, error: 'セーブデータの内容が不正です。' };
-  return validateSavedGameConsistency(value);
+  const migrated = migrateSavedGame(value);
+  if (!migrated) return { ok: false, error: '未対応のセーブデータです。' };
+  if (!validateSavedGameShape(migrated)) return { ok: false, error: 'セーブデータの内容が不正です。' };
+  return validateSavedGameConsistency(migrated);
 }
 
 export function saveGame(storage: StorageLike, key: string, game: Omit<SavedGame, 'schemaVersion' | 'savedAt'>): GameResult<SavedGame> {
@@ -231,16 +241,29 @@ export function saveGame(storage: StorageLike, key: string, game: Omit<SavedGame
 }
 
 export function loadGame(storage: StorageLike, keys: readonly string[] = [MANUAL_SAVE_KEY, AUTO_SAVE_KEY]): GameResult<SavedGame> | undefined {
+  let firstError: GameResult<SavedGame> | undefined;
   for (const key of keys) {
     let raw: string | null;
     try { raw = storage.getItem(key); }
     catch { return { ok: false, error: 'セーブデータを読み込めませんでした。' }; }
-    if (raw !== null) return parseSavedGame(raw);
+    if (raw === null) continue;
+    const parsed = parseSavedGame(raw);
+    if (parsed.ok) return parsed;
+    firstError ??= parsed;
   }
-  return undefined;
+  return firstError;
 }
 
 export function hasSavedGame(storage: StorageLike): boolean {
+  try { return [MANUAL_SAVE_KEY, AUTO_SAVE_KEY].some(key => {
+    const raw = storage.getItem(key);
+    return raw !== null && parseSavedGame(raw).ok;
+  }); }
+  catch { return false; }
+}
+
+/** Presence-only check used to offer explicit recovery for invalid saves. */
+export function hasStoredSaveData(storage: StorageLike): boolean {
   try { return storage.getItem(MANUAL_SAVE_KEY) !== null || storage.getItem(AUTO_SAVE_KEY) !== null; }
   catch { return false; }
 }
