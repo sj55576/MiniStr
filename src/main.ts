@@ -695,7 +695,7 @@ function act(position: Position): void {
   const target = game.units.find(unit => isDeployedUnit(unit) && key(unit.position) === key(position));
   const visible = new Set(visiblePositions(game, 'red').map(key));
   if (target?.owner === 'blue' && !visible.has(key(position))) {
-    message = 'その地点へは移動できません。';
+    if (!moveSelectedUnit(position)) message = 'その地点へは移動できません。';
   } else if (target?.owner === game.activePlayer) {
     selected = target.id;
     message = `${unitNames[target.kind]}を選択しました。`;
@@ -705,8 +705,9 @@ function act(position: Position): void {
   } else if (target?.owner === 'blue') {
     selected = target.id;
     message = `${unitNames[target.kind]}の移動範囲と攻撃危険域を表示しています。`;
-  } else if (selectedUnitIsRed() && selected && dispatch({ type: 'move', unitId: selected, destination: position }, true)) message = '移動しました。';
-  else if (selected) {
+  } else if (moveSelectedUnit(position)) {
+    // The helper sets either the normal movement message or the encounter notice.
+  } else if (selected) {
     selected = undefined;
     message = '敵ユニットの危険域表示を解除しました。';
   }
@@ -715,6 +716,17 @@ function act(position: Position): void {
 
 function selectedUnitIsRed(): boolean {
   return game.units.some(unit => unit.id === selected && unit.owner === 'red');
+}
+function moveSelectedUnit(destination: Position): boolean {
+  if (!selected || !selectedUnitIsRed()) return false;
+  const unitId = selected;
+  if (!dispatch({ type: 'move', unitId, destination }, true)) return false;
+  const finalPosition = game.units.find(unit => unit.id === unitId);
+  message = !!finalPosition && isDeployedUnit(finalPosition)
+    && (finalPosition.position.x !== destination.x || finalPosition.position.y !== destination.y)
+    ? '敵部隊を発見し、移動を中断しました。'
+    : '移動しました。';
+  return true;
 }
 function runCpu(): void {
   if (replay) return;
