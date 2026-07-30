@@ -20,6 +20,10 @@ let undoStack: { state: GameState; commandCount: number }[] = [];
 interface ReplayRuntime { file: ReplayFile; state: GameState; index: number; playing: boolean; speed: 0.5 | 1 | 2 | 4 }
 let replay: ReplayRuntime | undefined;
 let replayTimer: number | undefined;
+let cpuTimer: number | undefined;
+let cpuInProgress = false;
+let cpuSkipRequested = false;
+const CPU_STEP_DELAY_MS = 350;
 let briefingOpen = true;
 let campaignMenuOpen = false;
 let campaignReturnToBriefing = false;
@@ -421,7 +425,7 @@ function render(): void {
   const boardZoomControls = `<div class="board-zoom-controls" aria-label="盤面の拡大率"><button id="board-zoom-out" class="save-action" aria-label="盤面を縮小" title="盤面を縮小" ${boardZoomIndex === 0 ? 'disabled' : ''}>−</button><span aria-live="polite">${Math.round(boardZoom * 100)}%</span><button id="board-zoom-in" class="save-action" aria-label="盤面を拡大" title="盤面を拡大" ${boardZoomIndex === BOARD_ZOOM_LEVELS.length - 1 ? 'disabled' : ''}>＋</button></div>`;
   const briefing = !campaignMenuOpen && !replayMode && briefingOpen ? `<div class="briefing-overlay" role="dialog" aria-modal="true" aria-labelledby="briefing-title" aria-describedby="briefing-copy"><section class="briefing-card"><p class="card-kicker">OPERATION BRIEFING</p><h2 id="briefing-title">${escapeHtml(renderedMap.name)}</h2><p id="briefing-copy" class="briefing-copy">${escapeHtml(renderedMap.briefing)}</p><div class="briefing-objectives"><section><h3>勝利条件</h3><ul>${renderedMap.victoryConditions.map(condition => `<li>${escapeHtml(describeVictoryCondition(condition))}</li>`).join('')}</ul></section><section><h3>敗北条件</h3><ul>${renderedMap.defeatConditions.map(condition => `<li>${escapeHtml(describeVictoryCondition(condition))}</li>`).join('')}</ul></section></div><div class="briefing-meta"><span>初期資金 <strong>${renderedMap.startingGold}G</strong></span><span>ターン制限 <strong>${renderedMap.turnLimit ?? 'なし'}</strong></span><span>難易度 <strong>${difficultyNames[difficulty]}</strong></span></div><div class="briefing-actions"><button id="open-campaign-briefing" class="save-action">キャンペーン</button><button id="begin-operation" class="end-turn">${campaignRun ? '作戦開始' : '単体作戦を開始'} <span aria-hidden="true">→</span></button></div></section></div>` : '';
   app.innerHTML = `<main class="game-shell">
-    <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択" ${replayMode || campaignRun ? 'disabled' : ''}><optgroup label="組み込み">${maps.map(map => `<option value="${escapeHtml(map.id)}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</optgroup>${availableScenarios().filter(map => !maps.some(builtIn => builtIn.id === map.id)).length ? `<optgroup label="カスタム">${availableScenarios().filter(map => !maps.some(builtIn => builtIn.id === map.id)).map(map => `<option value="${escapeHtml(map.id)}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</optgroup>` : ''}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択" ${replayMode ? 'disabled' : ''}>${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === renderedDifficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="save-controls"><button id="open-editor" class="save-action" ${replayMode ? 'disabled' : ''}>マップ編集</button><button id="open-campaign" class="save-action" ${replayMode ? 'disabled' : ''}>キャンペーン</button><button id="continue" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>続きから</button><button id="save" class="save-action" ${replayMode ? 'disabled' : ''}>手動セーブ</button><button id="delete-save" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>対局セーブ削除</button><button id="undo" class="save-action" ${!replayMode && renderedGame.activePlayer === 'red' && undoStack.length > 0 ? '' : 'disabled'}>1手戻す</button><button id="import-replay" class="save-action" ${replayMode ? 'disabled' : ''}>JSON取込</button><input id="replay-file" class="visually-hidden" type="file" accept=".json,application/json" aria-label="JSONリプレイファイルを選択"></div><div class="turn-indicator ${renderedGame.activePlayer}"><span>${replayMode ? 'REPLAY' : campaignRun ? 'CAMPAIGN' : 'TURN'}</span><strong>${activeLabel}</strong></div><button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する" ${replayMode ? 'disabled' : ''}>ターン終了 <span aria-hidden="true">→</span></button></header>
+    <header class="command-bar"><div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><div><h1>MiniStr</h1><p>TACTICAL COMMAND</p></div></div><label class="map-picker">戦域<select id="map" aria-label="戦域マップを選択" ${replayMode || campaignRun ? 'disabled' : ''}><optgroup label="組み込み">${maps.map(map => `<option value="${escapeHtml(map.id)}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</optgroup>${availableScenarios().filter(map => !maps.some(builtIn => builtIn.id === map.id)).length ? `<optgroup label="カスタム">${availableScenarios().filter(map => !maps.some(builtIn => builtIn.id === map.id)).map(map => `<option value="${escapeHtml(map.id)}" ${map.id === renderedMap.id ? 'selected' : ''}>${escapeHtml(map.name)}</option>`).join('')}</optgroup>` : ''}</select></label><label class="map-picker">難易度<select id="difficulty" aria-label="CPUの難易度を選択" ${replayMode ? 'disabled' : ''}>${(['easy', 'normal', 'hard'] as CpuDifficulty[]).map(level => `<option value="${level}" ${level === renderedDifficulty ? 'selected' : ''}>${difficultyNames[level]}</option>`).join('')}</select></label><div class="save-controls"><button id="open-editor" class="save-action" ${replayMode ? 'disabled' : ''}>マップ編集</button><button id="open-campaign" class="save-action" ${replayMode ? 'disabled' : ''}>キャンペーン</button><button id="continue" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>続きから</button><button id="save" class="save-action" ${replayMode ? 'disabled' : ''}>手動セーブ</button><button id="delete-save" class="save-action" ${replayMode || !hasSave() ? 'disabled' : ''}>対局セーブ削除</button><button id="undo" class="save-action" ${!replayMode && renderedGame.activePlayer === 'red' && undoStack.length > 0 ? '' : 'disabled'}>1手戻す</button><button id="import-replay" class="save-action" ${replayMode ? 'disabled' : ''}>JSON取込</button><input id="replay-file" class="visually-hidden" type="file" accept=".json,application/json" aria-label="JSONリプレイファイルを選択"></div><div class="turn-indicator ${renderedGame.activePlayer}"><span>${replayMode ? 'REPLAY' : cpuInProgress ? 'CPU THINKING' : campaignRun ? 'CAMPAIGN' : 'TURN'}</span><strong>${cpuInProgress ? 'CPU 行動中' : activeLabel}</strong></div>${cpuInProgress ? '<button id="skip-cpu" class="save-action" title="CPUの残りの行動を高速に進める">CPU をスキップ</button>' : ''}<button id="end" class="end-turn" title="現在のターンを終了" aria-label="ターンを終了する" ${replayMode || cpuInProgress ? 'disabled' : ''}>ターン終了 <span aria-hidden="true">→</span></button></header>
     ${replay ? `<section class="replay-toolbar" aria-label="リプレイ再生コントロール"><div><p class="card-kicker">REPLAY</p><strong aria-live="polite">${replay.index} / ${replay.file.commands.length} 手</strong></div><button id="replay-toggle" class="end-turn" aria-label="${replay.playing ? 'リプレイを一時停止' : replay.index >= replay.file.commands.length ? 'リプレイを最初から再生' : 'リプレイを再生'}" ${replay.file.commands.length === 0 ? 'disabled' : ''}>${replay.playing ? '一時停止' : replay.index >= replay.file.commands.length ? 'もう一度再生' : '再生'}</button><button id="replay-step" class="save-action" ${replay.playing || replay.index >= replay.file.commands.length ? 'disabled' : ''}>1手送り</button><label class="replay-speed">速度<select id="replay-speed" aria-label="リプレイ再生速度">${([0.5, 1, 2, 4] as const).map(speed => `<option value="${speed}" ${speed === replay!.speed ? 'selected' : ''}>${speed}x</option>`).join('')}</select></label><button id="replay-exit" class="save-action">リプレイを終了</button></section>` : ''}
     <section class="battle-layout"><div class="battlefield-wrap ${mapTheme}"><div class="battlefield-heading"><div><p>OPERATION MAP</p><h2>${escapeHtml(renderedMap.name)}</h2></div><p class="status-message" aria-live="polite">${escapeHtml(message)}</p></div><p id="board-instructions" class="board-instructions">盤面では矢印キーでマスを移動し、Enter または Space で選択・行動、Esc で選択を解除できます。敵部隊を選択またはフォーカスすると、移動範囲と攻撃危険域を確認できます。N キーで次の未行動部隊へ移動します。</p><div id="board-viewport" class="board-viewport" tabindex="0" aria-label="盤面スクロール領域" style="max-height:min(70vh, ${boardViewportHeight}px)"><div class="board" role="group" aria-label="${escapeHtml(renderedMap.name)}の戦術マップ" aria-describedby="board-instructions" style="grid-template-columns:repeat(${renderedGame.board.width},${boardTileSize}px);grid-template-rows:repeat(${renderedGame.board.height},${boardTileSize}px);aspect-ratio:${renderedGame.board.width} / ${renderedGame.board.height}">${board}</div></div>${boardZoomControls}<div class="map-legend" aria-label="マップ凡例"><span><i class="legend-dot reachable-dot" aria-hidden="true">移</i>移動可能</span><span><i class="legend-dot danger-dot" aria-hidden="true">危</i>敵の攻撃危険域</span><span><i class="legend-dot enemy-move-dot" aria-hidden="true">敵移</i>選択敵の移動範囲</span><span><i class="legend-dot fog-dot" aria-hidden="true">?</i>未索敵</span><span><i class="legend-unit red-dot" aria-hidden="true">自</i>自軍</span><span><i class="legend-unit blue-dot" aria-hidden="true">敵</i>敵軍</span><span><i class="legend-facility" aria-hidden="true">拠</i>拠点（市・工・港・司）</span></div></div>
     <aside id="command-panel" class="command-panel" aria-label="作戦情報" tabindex="-1">${objectivePanel}${unitQueuePanel}<section class="commander-card ${renderedGame.activePlayer}"><img src="${commander.image}" alt="${commander.alt}"><div><p>COMMANDER</p><h2>${commander.title}</h2><span>${commander.label}</span></div></section>${captureAction}${transportAction}${forecastCard}<section class="intel-card"><p class="card-kicker">RESOURCES</p><div class="resource-row"><span>自軍資金</span><strong>${renderedGame.players.red.gold}<small>G</small></strong></div><div class="resource-row enemy"><span>敵軍資金</span><strong>${renderedGame.players.blue.gold}<small>G</small></strong></div></section><section class="intel-card"><p class="card-kicker">RECON</p><div class="recon-count"><strong>${visibleEnemies(renderedGame, 'red').length}</strong><span>確認済み敵部隊</span></div></section><section class="production-card"><div><p class="card-kicker">PRODUCTION</p><h2>ユニット生産</h2></div><div class="production-grid">${production}</div></section>${turnSetting}<p class="command-tip">歩兵は中立・敵軍の都市、工場、港湾、司令部で<strong>占領</strong>できます。輸送艦は歩兵を1部隊搭載し、別の島へ上陸させられます。</p></aside>
@@ -441,6 +445,11 @@ function render(): void {
     });
   }
   const guardNormal = (action: () => void) => () => { if (!replay && game.activePlayer === 'red') action(); };
+  app.querySelector<HTMLButtonElement>('#skip-cpu')?.addEventListener('click', () => {
+    cpuSkipRequested = true;
+    message = 'CPU の残りの行動を高速に進めています。';
+    render();
+  });
   app.querySelector<HTMLButtonElement>('#board-zoom-out')?.addEventListener('click', () => {
     if (boardZoomIndex === 0) return;
     boardZoomIndex -= 1;
@@ -731,19 +740,35 @@ function moveSelectedUnit(destination: Position): boolean {
     : '移動しました。';
   return true;
 }
-function runCpu(): void {
-  if (replay) return;
-  for (let steps = 0; steps < 30 && game.activePlayer === 'blue' && !game.winner; steps += 1) {
-    const action = chooseCpuAction(game, difficulty);
-    if (action.type === 'endTurn') { dispatch(action); break; }
-    if (!dispatch(action)) { dispatch({ type: 'endTurn' }); break; }
-  }
-  if (game.activePlayer === 'blue' && !game.winner) {
-    dispatch({ type: 'endTurn' });
-    message = 'CPU の行動上限に達したため、ターンを終了しました。';
-  }
+function finishCpuTurn(reachedLimit = false): void {
+  if (game.activePlayer === 'blue' && !game.winner) dispatch({ type: 'endTurn' });
+  cpuInProgress = false;
+  cpuSkipRequested = false;
+  cpuTimer = undefined;
   undoStack = [];
-  if (persist(AUTO_SAVE_KEY)) message = 'CPU が行動しました。オートセーブしました。';
+  message = reachedLimit ? 'CPU の行動上限に達したため、ターンを終了しました。' : 'CPU が行動しました。';
+  if (persist(AUTO_SAVE_KEY)) message += ' オートセーブしました。';
+  render();
+}
+
+/** Advance one CPU command per timer tick so the board remains observable. */
+function runCpu(): void {
+  if (replay || cpuInProgress) return;
+  cpuInProgress = true;
+  const maximumSteps = Math.max(30, game.units.filter(unit => isDeployedUnit(unit) && unit.owner === 'blue').length * 3 + 5);
+  let steps = 0;
+  const advance = (): void => {
+    if (replay || game.activePlayer !== 'blue' || game.winner) { finishCpuTurn(); return; }
+    if (steps >= maximumSteps) { finishCpuTurn(true); return; }
+    steps += 1;
+    const action = chooseCpuAction(game, difficulty);
+    if (action.type === 'endTurn') { dispatch(action); finishCpuTurn(); return; }
+    if (!dispatch(action)) { message = 'CPU の行動を安全に終了しました。'; finishCpuTurn(); return; }
+    message = 'CPU が行動中です。';
+    render();
+    cpuTimer = window.setTimeout(advance, cpuSkipRequested ? 0 : CPU_STEP_DELAY_MS);
+  };
+  advance();
 }
 window.addEventListener('keydown', event => {
   const target = event.target;
