@@ -88,7 +88,9 @@ function enemyThreatPreview(state: GameState, unitId: string): { movement: Set<s
   }
   const movement = new Set<string>();
   const origins = [unit.position];
-  if (!unit.hasMoved) {
+  // This preview describes the enemy's next turn, so its current action flags
+  // must not suppress a threat. Indirect units may not fire after moving.
+  if (!unitStats[unit.kind].indirect) {
     for (const position of reachablePositions(state, unit.id)) {
       movement.add(key(position));
       origins.push(position);
