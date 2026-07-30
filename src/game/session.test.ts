@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyGameCommand, attackUnit, AUTO_SAVE_KEY, createBoard, createGameState, loadGame, MAX_SAVE_BYTES, moveUnit,
-  parseSavedGame, replayCommands, saveGame, SAVE_SCHEMA_VERSION, type GameCommand,
+  hasSavedGame, parseSavedGame, replayCommands, saveGame, SAVE_SCHEMA_VERSION, type GameCommand,
   createScenarioInitialState, saveCustomScenario, scenarioById, type GameState, type StorageLike, unitStats,
 } from './index';
 
@@ -99,6 +99,17 @@ describe('versioned save persistence', () => {
     expect(loaded?.ok).toBe(true);
     expect(loaded?.ok && loaded.value.schemaVersion).toBe(SAVE_SCHEMA_VERSION);
     expect(loaded?.ok && loaded.value.gameState).toEqual(gameState);
+  });
+
+  it('migrates a valid v1 save and prefers a valid auto-save over corrupt manual data', () => {
+    const storage = new MemoryStorage();
+    const initialState = canonicalSkirmish();
+    expect(saveGame(storage, AUTO_SAVE_KEY, { mapId: 'skirmish', difficulty: 'normal', initialState, commands: [], gameState: initialState }).ok).toBe(true);
+    const legacy = { ...JSON.parse(storage.data.get(AUTO_SAVE_KEY)!), schemaVersion: 1 };
+    expect(parseSavedGame(JSON.stringify(legacy)).ok).toBe(true);
+    storage.setItem('ministr.save.manual', '{broken');
+    expect(hasSavedGame(storage)).toBe(true);
+    expect(loadGame(storage)?.ok).toBe(true);
   });
 
   it('round-trips a valid saved game containing an anti-air unit', () => {

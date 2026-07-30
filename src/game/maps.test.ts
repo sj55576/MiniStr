@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUSTOM_SCENARIOS_KEY, availableScenarios, createScenarioEditor, createScenarioInitialState, importScenarioEditorJson, loadCustomScenarios, loadScenarioDefinitions, maps, saveCustomScenario, scenarioById, unitStats, type ScenarioData, type ScenarioStorageLike } from './index';
+import { CUSTOM_SCENARIOS_KEY, availableScenarios, createBuiltInScenarioCatalog, createScenarioEditor, createScenarioInitialState, importScenarioEditorJson, loadCustomScenarios, loadScenarioDefinitions, maps, saveCustomScenario, scenarioById, unitStats, type ScenarioData, type ScenarioStorageLike } from './index';
 
 class MemoryStorage implements ScenarioStorageLike {
   data = new Map<string, string>();
@@ -16,6 +16,13 @@ const customScenario: ScenarioData = {
 };
 
 describe('expanded map roster', () => {
+  it('falls back to a playable emergency scenario when the built-in catalog is invalid', () => {
+    const catalog = createBuiltInScenarioCatalog([{ id: 'broken' }]);
+    expect(catalog.error).toBeDefined();
+    expect(catalog.scenarios.map(scenario => scenario.id)).toEqual(['emergency-skirmish']);
+    expect(createScenarioInitialState(catalog.scenarios[0]!).units).toHaveLength(2);
+  });
+
   it('offers five distinct scenarios with map-owned starting forces', () => {
     expect(maps.map(map => map.id)).toEqual(['skirmish', 'islands', 'landing', 'canyon', 'siege']);
     for (const map of maps) {

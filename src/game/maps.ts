@@ -217,7 +217,12 @@ const emergencyScenarioData = [{
 // developer-owned emergency definition.
 const fallbackLoad = loadScenarioDefinitions(emergencyScenarioData);
 if (!fallbackLoad.ok) throw new Error(`Fallback scenario definition is invalid: ${fallbackLoad.error}`);
-const builtInCatalog = createScenarioCatalog(builtInScenarioData, fallbackLoad.value);
+const fallbackScenarios = fallbackLoad.value;
+/** Builds a safe built-in catalog and is exported so fallback behavior is regression-tested. */
+export function createBuiltInScenarioCatalog(source: unknown): ScenarioCatalog {
+  return createScenarioCatalog(source, fallbackScenarios);
+}
+const builtInCatalog = createBuiltInScenarioCatalog(builtInScenarioData);
 
 /** Validated exactly once during module initialization. */
 export const maps: readonly ScenarioDefinition[] = builtInCatalog.scenarios;

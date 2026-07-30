@@ -2,7 +2,7 @@ import { scenarioById } from './maps';
 import { isGameState, type StorageLike } from './session';
 import type { GameResult, GameState, PlayerId } from './types';
 
-export const CAMPAIGN_SCHEMA_VERSION = 1 as const;
+export const CAMPAIGN_SCHEMA_VERSION = 2 as const;
 export const CAMPAIGN_STORAGE_KEY = 'ministr.campaign.progress';
 export const MAX_CAMPAIGN_BYTES = 64_000;
 export type CampaignGrade = 'S' | 'A' | 'B' | 'C';
@@ -20,6 +20,16 @@ export interface CampaignProgress {
   unlockedScenarioIds: string[];
   bestGrades: Partial<Record<string, CampaignGrade>>;
   updatedAt: string;
+}
+
+function migrateCampaignV1ToV2(value: Record<string, unknown>): Record<string, unknown> {
+  return { ...structuredClone(value), schemaVersion: CAMPAIGN_SCHEMA_VERSION };
+}
+
+function migrateCampaign(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (value.schemaVersion === CAMPAIGN_SCHEMA_VERSION) return value;
+  if (value.schemaVersion === 1) return migrateCampaignV1ToV2(value);
+  return undefined;
 }
 export interface CampaignGradeResult {
   grade: CampaignGrade;
@@ -131,8 +141,9 @@ export function parseCampaignProgress(serialized: string): GameResult<CampaignPr
   let value: unknown;
   try { value = JSON.parse(serialized); } catch { return fail('キャンペーンデータが壊れています。'); }
   if (!isRecord(value)) return fail('キャンペーンデータの形式が不正です。');
-  if (value.schemaVersion !== CAMPAIGN_SCHEMA_VERSION) return fail('未対応のキャンペーンデータです。');
-  return isCampaignProgress(value) ? ok(structuredClone(value)) : fail('キャンペーンデータの内容が不正です。');
+  const migrated = migrateCampaign(value);
+  if (!migrated) return fail('未対応のキャンペーンデータです。');
+  return isCampaignProgress(migrated) ? ok(structuredClone(migrated)) : fail('キャンペーンデータの内容が不正です。');
 }
 
 export function loadCampaignProgress(storage: StorageLike): GameResult<CampaignProgress> {

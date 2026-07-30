@@ -4,7 +4,7 @@ import { canProduceUnit, isPropertyTerrainKind } from '../game/facilities';
 import { visibleEnemies as getVisibleEnemies } from '../game/fog';
 import { unitAt } from '../game/state';
 import { manhattanDistance, movementCost, terrainAt } from '../game/terrain';
-import { isDeployedUnit, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
+import { isDeployedUnit, type Board, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
 import { unitStats } from '../game/units';
 
 /** The CPU does not use hidden randomness: the same state always gives the same order. */
@@ -46,6 +46,8 @@ export type CpuAction =
 export interface CpuPlanningContext {
   visibleEnemies: readonly Unit[];
   targets: readonly Position[];
+  /** Immutable terrain topology, shared by every transport/production choice. */
+  landComponents: ReadonlyMap<string, number>;
 }
 
 const propertyKinds = new Set(['city', 'factory', 'port', 'capital']);
@@ -141,7 +143,7 @@ function productionAction(state: GameState, player: PlayerId, config: CpuDifficu
   const { targets } = context;
   const hasRemoteInfantry = orderedUnits(state, player)
     .filter(unit => unit.kind === 'infantry')
-    .some(unit => targets.some(target => !sameLandComponent(state, unit.position, target)));
+    .some(unit => targets.some(target => !sameLandComponent(context.landComponents, unit.position, target)));
   const hasLandingShip = state.units.some(unit => unit.owner === player && unit.kind === 'landingShip');
   if (hasRemoteInfantry && !hasLandingShip && state.players[player].gold >= unitStats.landingShip.cost) {
     const port = emptyOwnedFacility(state, player, 'landingShip');
@@ -181,21 +183,39 @@ function isAdjacent(first: Position, second: Position): boolean {
  * Land components deliberately use infantry movement rules. This lets the CPU distinguish
  * a remote island from a route it can simply walk, without treating a port as open sea.
  */
-function sameLandComponent(state: GameState, first: Position, second: Position): boolean {
-  if (!Number.isFinite(movementCost(state.board, first, 'infantry')) || !Number.isFinite(movementCost(state.board, second, 'infantry'))) return false;
-  const pending = [first];
-  const seen = new Set<string>();
-  while (pending.length) {
-    const current = pending.pop()!;
-    const currentKey = `${current.x},${current.y}`;
-    if (seen.has(currentKey)) continue;
-    if (current.x === second.x && current.y === second.y) return true;
-    seen.add(currentKey);
-    for (const next of adjacentPositions(current)) {
-      if (Number.isFinite(movementCost(state.board, next, 'infantry')) && !seen.has(`${next.x},${next.y}`)) pending.push(next);
+const landComponentCache = new WeakMap<Board, ReadonlyMap<string, number>>();
+
+/**
+ * Terrain kinds never change during a match, so infantry-connected land areas can be
+ * indexed once per board. Ownership changes do not invalidate this topology.
+ */
+function landComponents(board: Board): ReadonlyMap<string, number> {
+  const cached = landComponentCache.get(board);
+  if (cached) return cached;
+
+  const components = new Map<string, number>();
+  let componentId = 0;
+  for (let y = 0; y < board.height; y += 1) for (let x = 0; x < board.width; x += 1) {
+    const start = { x, y };
+    const startKey = `${x},${y}`;
+    if (components.has(startKey) || !Number.isFinite(movementCost(board, start, 'infantry'))) continue;
+    const pending = [start];
+    while (pending.length) {
+      const current = pending.pop()!;
+      const currentKey = `${current.x},${current.y}`;
+      if (components.has(currentKey) || !Number.isFinite(movementCost(board, current, 'infantry'))) continue;
+      components.set(currentKey, componentId);
+      for (const next of adjacentPositions(current)) pending.push(next);
     }
+    componentId += 1;
   }
-  return false;
+  landComponentCache.set(board, components);
+  return components;
+}
+
+function sameLandComponent(components: ReadonlyMap<string, number>, first: Position, second: Position): boolean {
+  const firstComponent = components.get(`${first.x},${first.y}`);
+  return firstComponent !== undefined && firstComponent === components.get(`${second.x},${second.y}`);
 }
 
 function nearestTarget(position: Position, targets: readonly Position[]): Position | undefined {
@@ -255,7 +275,7 @@ export function evaluateCpuPosition(
 }
 
 /** Choose one transport step before ordinary movement so island objectives are never stranded. */
-function transportAction(state: GameState, player: PlayerId, targets: readonly Position[]): CpuAction | undefined {
+function transportAction(state: GameState, player: PlayerId, targets: readonly Position[], components: ReadonlyMap<string, number>): CpuAction | undefined {
   if (!targets.length) return undefined;
   const units = orderedUnits(state, player);
 
@@ -265,7 +285,7 @@ function transportAction(state: GameState, player: PlayerId, targets: readonly P
     if (!cargo) continue;
     const destination = adjacentPositions(transport.position)
       .filter(position => Number.isFinite(movementCost(state.board, position, 'infantry')) && !unitAt(state, position)
-        && targets.some(target => sameLandComponent(state, position, target)))
+        && targets.some(target => sameLandComponent(components, position, target)))
       .map(position => ({ position, target: nearestTarget(position, targets) }))
       .filter((candidate): candidate is { position: Position; target: Position } => candidate.target !== undefined)
       .sort((a, b) => manhattanDistance(a.position, a.target) - manhattanDistance(b.position, b.target)
@@ -275,7 +295,7 @@ function transportAction(state: GameState, player: PlayerId, targets: readonly P
 
   // Board an infantry unit only if an objective lies on a different land component.
   for (const infantry of units.filter(unit => unit.kind === 'infantry' && !unit.hasActed)) {
-    const remoteObjective = targets.some(target => !sameLandComponent(state, infantry.position, target));
+    const remoteObjective = targets.some(target => !sameLandComponent(components, infantry.position, target));
     if (!remoteObjective) continue;
     const transport = units.find(candidate => candidate.kind === 'landingShip' && !candidate.hasMoved && !candidate.hasActed
       && isAdjacent(infantry.position, candidate.position) && !state.units.some(unit => unit.embarkedIn === candidate.id));
@@ -304,7 +324,9 @@ function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyCon
     if (unit.hasMoved || unit.hasActed) continue;
     // Advance across the unit's whole movement range (Dijkstra reachability), weighing cover,
     // resupply and visible counterattack risk instead of raw distance alone.
-    const destination = reachablePositionsForPlayer(state, unit.id, player)
+    // Include the current position as an explicit wait order. A wait is encoded
+    // as a zero-cost move so the unit becomes moved and cannot be selected again.
+    const destination = [unit.position, ...reachablePositionsForPlayer(state, unit.id, player)]
       .map(position => ({ position, score: evaluateCpuPosition(state, player, unit, position, targets, config, context.visibleEnemies) }))
       .sort((a, b) => b.score - a.score || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
     if (destination) return { type: 'move', unitId: unit.id, destination };
@@ -315,7 +337,7 @@ function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyCon
 /** Build immutable, fog-safe data once for the current CPU order. */
 export function createCpuPlanningContext(state: GameState, player: PlayerId, config: CpuDifficultyConfig): CpuPlanningContext {
   const visibleEnemies = getVisibleEnemies(state, player);
-  return { visibleEnemies, targets: objectives(state, player, config, visibleEnemies) };
+  return { visibleEnemies, targets: objectives(state, player, config, visibleEnemies), landComponents: landComponents(state.board) };
 }
 
 /** Select the next legal high-level CPU order. The caller applies it with the game command layer. */
@@ -326,7 +348,7 @@ export function chooseCpuAction(state: GameState, difficulty: CpuDifficulty = 'n
   if (capture) return { type: 'capture', unitId: capture.id };
   const context = createCpuPlanningContext(state, player, config);
   return attackAction(state, player, config, context.visibleEnemies)
-    ?? transportAction(state, player, context.targets)
+    ?? transportAction(state, player, context.targets, context.landComponents)
     ?? productionAction(state, player, config, context)
     ?? moveAction(state, player, config, context)
     ?? { type: 'endTurn' };

@@ -7,6 +7,7 @@ export * from './rng';
 export * from './commands';
 export * from './combat';
 export * from './fog';
+export * from './threat';
 export * from './maps';
 export * from './victory';
 export * from './session';

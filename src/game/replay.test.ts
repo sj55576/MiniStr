@@ -109,6 +109,13 @@ describe('versioned replay files', () => {
     expect(parsed).toEqual({ ok: true, value: replay });
   });
 
+  it('migrates a valid v1 replay before validating its command history', () => {
+    const legacy = { ...finishedReplay(), schemaVersion: 1 };
+    const parsed = parseReplay(JSON.stringify(legacy));
+    expect(parsed.ok && parsed.value.schemaVersion).toBe(REPLAY_SCHEMA_VERSION);
+    expect(parsed.ok && parsed.value.summary.winner).toBe('red');
+  });
+
   it('rejects malformed, unsupported, oversized, and structurally invalid data', () => {
     expect(parseReplay('{broken')).toEqual({ ok: false, error: 'リプレイデータが壊れています。' });
     expect(parseReplay(JSON.stringify({ schemaVersion: 999 })))
