@@ -731,4 +731,18 @@ describe('Capture interruption and fuel timing', () => {
     expect(afterRedEnds.units.find(unit => unit.id === 'fighter')).toBeDefined();
     expect(endTurn(afterRedEnds).units.find(unit => unit.id === 'fighter')).toBeUndefined();
   });
+
+
+  it('keeps an aircraft that spent its last fuel moving until its next turn begins', () => {
+    const state = createGameState(createBoard(3, 1));
+    state.units = [{ id: 'fighter', kind: 'fighter', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 2, hasMoved: false, hasActed: false }];
+
+    const moved = moveUnit(state, 'fighter', { x: 2, y: 0 });
+    expect(moved.ok && moved.value.units.find(unit => unit.id === 'fighter')).toMatchObject({ fuel: 0, position: { x: 2, y: 0 } });
+    if (!moved.ok) return;
+
+    const afterRedEnds = endTurn(moved.value);
+    expect(afterRedEnds.units.find(unit => unit.id === 'fighter')).toBeDefined();
+    expect(endTurn(afterRedEnds).units.find(unit => unit.id === 'fighter')).toBeUndefined();
+  });
 });
