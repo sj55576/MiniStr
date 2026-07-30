@@ -11,19 +11,36 @@ const unit = (id: string, owner: 'red' | 'blue', x: number, y: number): GameStat
 
 function scenario(patch: Partial<ScenarioDefinition> = {}): ScenarioDefinition {
   return {
-    id: 'test', name: 'Test', briefing: 'Test scenario', board: createBoard(3, 1),
+    id: 'test', name: 'Test', briefing: 'Test scenario', board: createBoard(3, 1), theme: 'temperate',
     startingGold: 0, initialUnits: [], victoryConditions: [], defeatConditions: [], ...patch,
   };
 }
 
+/** Scenarios that deliberately replace the shared eliminate/capture objective pair. */
+const dedicatedObjectiveIds = new Set(['landing', 'industrial', 'tundra']);
+
 describe('data-driven victory conditions', () => {
-  it('keeps four legacy maps compatible while allowing dedicated scenarios', () => {
-    const legacyMaps = maps.filter(map => map.id !== 'landing');
-    expect(legacyMaps).toHaveLength(4);
-    for (const map of legacyMaps) {
+  it('keeps the standard-objective maps mirrored while allowing dedicated scenarios', () => {
+    const standardMaps = maps.filter(map => !dedicatedObjectiveIds.has(map.id));
+    expect(standardMaps.map(map => map.id)).toEqual(['skirmish', 'islands', 'canyon', 'siege', 'river', 'outpost']);
+    for (const map of standardMaps) {
       expect(map.briefing.length).toBeGreaterThan(0);
       expect(map.victoryConditions).toEqual([{ type: 'eliminate' }, { type: 'captureCapital' }]);
-      expect(map.defeatConditions).toEqual(map.victoryConditions);
+      // A turn limit is normalized into an extra survive condition on blue's list.
+      expect(map.defeatConditions).toEqual(map.turnLimit === undefined
+        ? map.victoryConditions
+        : [...map.victoryConditions, { type: 'survive', untilTurn: map.turnLimit + 1 }]);
+    }
+  });
+
+  it('gives the dedicated scenarios their own briefed objectives', () => {
+    const dedicated = maps.filter(map => dedicatedObjectiveIds.has(map.id));
+    expect(dedicated.map(map => map.id)).toEqual(['landing', 'industrial', 'tundra']);
+    for (const map of dedicated) {
+      expect(map.briefing.length).toBeGreaterThan(0);
+      expect(map.victoryConditions).not.toEqual([{ type: 'eliminate' }, { type: 'captureCapital' }]);
+      expect(map.victoryConditions.length).toBeGreaterThan(0);
+      expect(map.defeatConditions.length).toBeGreaterThan(0);
     }
   });
 

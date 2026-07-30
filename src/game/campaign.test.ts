@@ -99,6 +99,18 @@ describe('campaign progression', () => {
     expect(progress.unlockedScenarioIds).toEqual(campaignStages.map(stage => stage.scenarioId));
   });
 
+  it('keeps pre-existing 4-stage saved progress valid as a prefix of the expanded roster', () => {
+    const legacyProgress: CampaignProgress = {
+      schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+      unlockedScenarioIds: ['skirmish', 'islands', 'canyon', 'siege'],
+      bestGrades: { skirmish: 'A', islands: 'B', canyon: 'S' },
+      updatedAt: NOW,
+    };
+    expect(isCampaignProgress(legacyProgress)).toBe(true);
+    const advanced = recordCampaignVictory(legacyProgress, 'siege', 'A', NOW);
+    expect(advanced.ok && advanced.value.unlockedScenarioIds).toEqual(['skirmish', 'islands', 'canyon', 'siege', 'river']);
+  });
+
   it('rejects completion of locked, unknown, and invalid-grade scenarios without mutation', () => {
     const progress = createCampaignProgress(NOW);
     const before = structuredClone(progress);

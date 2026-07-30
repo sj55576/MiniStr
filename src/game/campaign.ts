@@ -13,6 +13,8 @@ export const campaignStages: readonly CampaignStage[] = [
   { scenarioId: 'islands', recommendedTurns: 18 },
   { scenarioId: 'canyon', recommendedTurns: 20 },
   { scenarioId: 'siege', recommendedTurns: 24 },
+  { scenarioId: 'river', recommendedTurns: 22 },
+  { scenarioId: 'tundra', recommendedTurns: 18 },
 ];
 
 export interface CampaignProgress {
