@@ -30,7 +30,8 @@ export function moveUnit(state: GameState, unitId: string, destination: Position
     finalDestination = encounter.destination;
     spent = encounter.spent;
   }
-  if (unitAt(state, finalDestination)) return fail('Destination is occupied');
+  const occupant = unitAt(state, finalDestination);
+  if (occupant && occupant.id !== unit.id) return fail('Destination is occupied');
   const fuel = (unit.fuel ?? unitStats[unit.kind].fuel) - spent;
   const board = samePosition(unit.position, finalDestination)
     ? state.board
