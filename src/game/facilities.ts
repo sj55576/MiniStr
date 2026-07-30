@@ -1,4 +1,4 @@
-import type { TerrainKind, UnitKind } from './types';
+import { isDeployedUnit, type GameState, type PlayerId, type Position, type TerrainKind, type UnitKind } from './types';
 import { unitDefinitions, unitKinds, type ProductionTerrain } from './units';
 
 export const propertyTerrainKinds = ['city', 'factory', 'capital', 'port'] as const;
@@ -27,4 +27,37 @@ export const allProducibleUnitKinds: readonly UnitKind[] = unitKinds.filter(kind
 
 export function canProduceUnit(terrain: TerrainKind, unit: UnitKind): boolean {
   return productionKindsByTerrain[terrain]?.includes(unit) ?? false;
+}
+
+export interface ProductionFacility { position: Position; kind: PropertyTerrainKind; kinds: readonly UnitKind[] }
+
+/** Owned production facilities with no deployed unit on them, in stable row-major order. */
+export function idleProductionFacilities(state: GameState, player: PlayerId): ProductionFacility[] {
+  const facilities: ProductionFacility[] = [];
+  for (let y = 0; y < state.board.height; y += 1) {
+    for (let x = 0; x < state.board.width; x += 1) {
+      const tile = state.board.terrain[y]![x]!;
+      if (tile.owner !== player) continue;
+      const kinds = productionKindsByTerrain[tile.kind];
+      if (!kinds || kinds.length === 0) continue;
+      const occupied = state.units.some(unit => isDeployedUnit(unit) && unit.position.x === x && unit.position.y === y);
+      if (occupied) continue;
+      facilities.push({ position: { x, y }, kind: tile.kind as PropertyTerrainKind, kinds });
+    }
+  }
+  return facilities;
+}
+
+/** Total owned production facilities, regardless of occupancy. */
+export function countProductionFacilities(state: GameState, player: PlayerId): number {
+  let count = 0;
+  for (let y = 0; y < state.board.height; y += 1) {
+    for (let x = 0; x < state.board.width; x += 1) {
+      const tile = state.board.terrain[y]![x]!;
+      if (tile.owner !== player) continue;
+      const kinds = productionKindsByTerrain[tile.kind];
+      if (kinds && kinds.length > 0) count += 1;
+    }
+  }
+  return count;
 }

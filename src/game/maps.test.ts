@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUSTOM_SCENARIOS_KEY, availableScenarios, createBuiltInScenarioCatalog, createScenarioEditor, createScenarioInitialState, importScenarioEditorJson, loadCustomScenarios, loadScenarioDefinitions, maps, saveCustomScenario, scenarioById, unitStats, type ScenarioData, type ScenarioStorageLike } from './index';
+import { CUSTOM_SCENARIOS_KEY, availableScenarios, countProductionFacilities, createBuiltInScenarioCatalog, createScenarioEditor, createScenarioInitialState, idleProductionFacilities, importScenarioEditorJson, loadCustomScenarios, loadScenarioDefinitions, maps, saveCustomScenario, scenarioById, scenarioDefinitionToData, scenarioThemes, unitStats, type ScenarioData, type ScenarioStorageLike } from './index';
 
 class MemoryStorage implements ScenarioStorageLike {
   data = new Map<string, string>();
@@ -23,8 +23,8 @@ describe('expanded map roster', () => {
     expect(createScenarioInitialState(catalog.scenarios[0]!).units).toHaveLength(2);
   });
 
-  it('offers five distinct scenarios with map-owned starting forces', () => {
-    expect(maps.map(map => map.id)).toEqual(['skirmish', 'islands', 'landing', 'canyon', 'siege']);
+  it('offers nine distinct scenarios with map-owned starting forces', () => {
+    expect(maps.map(map => map.id)).toEqual(['skirmish', 'islands', 'landing', 'canyon', 'siege', 'river', 'industrial', 'tundra', 'outpost']);
     for (const map of maps) {
       expect(map.initialUnits.some(unit => unit.owner === 'red')).toBe(true);
       expect(map.initialUnits.some(unit => unit.owner === 'blue')).toBe(true);
@@ -35,6 +35,45 @@ describe('expanded map roster', () => {
         expect(unit.y).toBeLessThan(map.board.height);
       }
     }
+  });
+
+  it('resolves a valid theme for every built-in scenario and rejects an unknown theme', () => {
+    for (const map of maps) expect(scenarioThemes).toContain(map.theme);
+    const source = { ...scenarioDefinitionToData(maps[0]!), id: 'theme-check' };
+    expect(loadScenarioDefinitions([{ ...source, theme: 'volcanic' }]))
+      .toEqual({ ok: false, error: 'シナリオ「theme-check」のテーマが不正です。' });
+    // An omitted theme is not an error: it resolves to the default.
+    expect(loadScenarioDefinitions([{ ...source, theme: undefined }])).toMatchObject({ ok: true, value: [{ theme: 'temperate' }] });
+  });
+
+  it('round-trips theme through scenarioDefinitionToData and reload', () => {
+    for (const map of maps) {
+      const data = scenarioDefinitionToData(map);
+      expect(data.theme).toBe(map.theme);
+      const reloaded = loadScenarioDefinitions([{ ...data, id: `${map.id}-reload` }]);
+      expect(reloaded.ok && reloaded.value[0]!.theme).toBe(map.theme);
+    }
+  });
+
+  it('gives both players at least one owned production facility at turn one, and at least four production tiles total', () => {
+    for (const map of maps) {
+      const state = createScenarioInitialState(map);
+      expect(countProductionFacilities(state, 'red')).toBeGreaterThan(0);
+      expect(countProductionFacilities(state, 'blue')).toBeGreaterThan(0);
+      // No built-in scenario deploys a starting unit on top of a facility, so at
+      // turn one every owned facility is still idle.
+      expect(idleProductionFacilities(state, 'red')).toHaveLength(countProductionFacilities(state, 'red'));
+      expect(idleProductionFacilities(state, 'blue')).toHaveLength(countProductionFacilities(state, 'blue'));
+      const totalProductionTiles = map.board.terrain.flat().filter(tile => tile.kind === 'factory' || tile.kind === 'port').length;
+      expect(totalProductionTiles).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('gives tundra a survive victory condition for red and industrial a score condition', () => {
+    const tundra = maps.find(map => map.id === 'tundra')!;
+    expect(tundra.victoryConditions.some(condition => condition.type === 'survive')).toBe(true);
+    const industrial = maps.find(map => map.id === 'industrial')!;
+    expect(industrial.victoryConditions.some(condition => condition.type === 'score')).toBe(true);
   });
 
   it('adds reconnaissance cars and self-propelled rocket artillery', () => {

@@ -1,5 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@500;600;700&display=swap');
-
+/* Web fonts are requested from index.html, not imported here: a CSS @import cannot
+   start downloading until this stylesheet has been fetched and parsed, which costs
+   a mobile connection an extra round trip before any text is styled. */
 :root { color: #f4f0e5; background: #101817; font-family: Inter, system-ui, sans-serif; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 20% 0%, #263b34, transparent 45%), #101817; }
@@ -49,8 +50,8 @@ button { cursor: pointer; }
 
 .game-over { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #0a1211d9; }.game-over-card { display: grid; gap: 14px; justify-items: center; padding: 34px 46px; text-align: center; border: 1px solid #e8b33b; border-radius: 10px; background: linear-gradient(150deg, #1b2a26, #101817); box-shadow: 0 25px 60px #000a; }.game-over-card h2 { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-size: 38px; color: #fff0b1; }.game-over-card .end-turn { padding: 12px 28px; }
 
-.battlefield-wrap.desert::before { opacity: .18; background-image: url('/assets/desert-frontier.png'); }
-.battlefield-wrap.desert .board { border-color: #7d5b37; }.battlefield-wrap.desert .tile.plain { background-image: linear-gradient(135deg, #c9944e 0 50%, #b77f3e 50%); }.battlefield-wrap.desert .tile.road { background-image: linear-gradient(18deg, transparent 40%, #e0c188 41% 58%, transparent 59%), linear-gradient(#bd8747, #a76f35); }.battlefield-wrap.desert .tile.mountain { filter: sepia(.28) saturate(1.2); }
+.battlefield-wrap.theme-desert::before { opacity: .18; background-image: url('/assets/desert-frontier.png'); }
+.battlefield-wrap.theme-desert .board { border-color: #7d5b37; }.battlefield-wrap.theme-desert .tile.plain { background-image: linear-gradient(135deg, #c9944e 0 50%, #b77f3e 50%); }.battlefield-wrap.theme-desert .tile.road { background-image: linear-gradient(18deg, transparent 40%, #e0c188 41% 58%, transparent 59%), linear-gradient(#bd8747, #a76f35); }.battlefield-wrap.theme-desert .tile.mountain { filter: sepia(.28) saturate(1.2); }
 .commander-card.blue { border-color: #427bb9; background: linear-gradient(110deg, #142033 30%, transparent), #1e426c; }.commander-card.blue p { color: #bddcff; }.commander-card.blue span { color: #d2e8ff; }
 .unit-recon { border-radius: 50% 50% 16% 16%; }.unit-rocket { clip-path: polygon(12% 0, 88% 0, 100% 40%, 84% 100%, 16% 100%, 0 40%); border-radius: 0; }
 
@@ -197,3 +198,126 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 .enemy-move-marker { top: auto; right: 3px; bottom: 3px; width: auto; min-width: 20px; height: 14px; padding: 0 2px; color: #10232e; font-size: 7px; border-radius: 2px; background: #9bd9f4; }.danger-marker { top: auto; right: 3px; bottom: 3px; color: #fff6e9; background: #b83f35; }.enemy-move-marker + .danger-marker { right: 25px; }
 .danger-dot { color: #fff6e9; border-radius: 50%; background: #b83f35; }.enemy-move-dot { width: 22px; color: #10232e; border-radius: 2px; background: #9bd9f4; }
 .unit-queue-card { display: grid; gap: 9px; padding: 13px; border: 1px solid #627f72; border-radius: 6px; background: linear-gradient(145deg, #1c2e27, #14211d); }.unit-queue-card > div { display: flex; align-items: end; justify-content: space-between; gap: 9px; }.unit-queue-card h2 { margin: 2px 0 0; color: #edf4e9; font-size: 21px; }.unit-queue-card h2 strong { color: #f6d370; }.unit-queue-card ol { display: grid; gap: 5px; max-height: 158px; margin: 0; padding: 0; overflow: auto; list-style: none; }.unit-queue-item { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 7px; width: 100%; padding: 6px 7px; color: #ddebe0; font-size: 11px; text-align: left; border: 1px solid #486558; border-radius: 3px; background: #21342c; }.unit-queue-item:hover, .unit-queue-item:focus-visible { border-color: #f0cd68; background: #30493d; }.unit-queue-item span { display: grid; width: 20px; height: 20px; place-items: center; color: #fff; font-weight: 800; border-radius: 3px; background: #a83d34; }.unit-queue-item em { color: #f0d782; font-size: 10px; font-style: normal; }.unit-queue-card kbd { margin-left: 4px; padding: 1px 4px; color: #17211e; font: inherit; border-radius: 2px; background: #d7e3d9; }.unit-queue-empty { margin: 0; color: #b6c8bb; font-size: 11px; }.turn-setting { padding: 10px 12px; color: #c7d7cc; font-size: 11px; line-height: 1.45; border: 1px solid #40594f; border-radius: 6px; background: #18231f; }.turn-setting label { display: flex; align-items: flex-start; gap: 7px; }.turn-setting input { margin: 2px 0 0; accent-color: #e5b94e; }
+
+/* Phase 7.0: mobile interaction fundamentals. iOS Safari zooms the page when a focused control renders under 16px, so every text-entry control gets bumped on coarse pointers or narrow phones only — desktop sizing is untouched. */
+@media (pointer: coarse), (max-width: 640px) {
+  select, input, textarea { font-size: 16px; }
+  .map-picker select, .replay-speed select, .editor-toolbar select, .editor-fields input, .editor-fields select, .editor-fields textarea, #editor-json textarea { font-size: 16px; }
+}
+button, select, .tile { touch-action: manipulation; }
+/* Coarse-pointer tap targets: 44px minimum hit area on the busiest controls, and the smallest board/UI labels raised to a legible size. Mouse/desktop sizing is untouched. */
+@media (pointer: coarse) {
+  .save-action, .produce, .capture, .transport-action, .unit-queue-item { min-height: 44px; padding-left: 14px; padding-right: 14px; }
+  .board-zoom-controls .save-action { min-width: 44px; min-height: 44px; padding: 10px; }
+  .replay-toolbar .save-action, .replay-toolbar .end-turn { min-height: 44px; }
+  .card-kicker, .map-legend { font-size: 11px; }
+  .tile-state-marker { font-size: 10px; }
+  .facility small { font-size: 10px; }
+  .unit em { font-size: 10px; }
+}
+/* Command bar on a phone: a single 44px-tall horizontally-scrollable strip (over a wrapping grid) so the row stays one glanceable landmark and never pushes the board below the fold. */
+@media (max-width: 640px) {
+  .save-controls { flex-wrap: nowrap; max-width: 100%; width: 100%; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; padding-bottom: 3px; }
+  .save-controls .save-action { flex: 0 0 auto; min-width: 88px; min-height: 44px; scroll-snap-align: start; }
+}
+/* Safe-area padding for the shell so notches/home-indicator strips never clip content; bottom inset is added separately once the fixed mobile action bar exists. */
+.game-shell { padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+@media (max-width: 640px) { .game-shell { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); } }
+/* Short-screen overlay dialogs: dvh accounts for mobile browser chrome (address bar / on-screen keyboard) collapsing the visible viewport; the vh declaration above each is a fallback for browsers without dvh support (an unsupported unit invalidates only this declaration). */
+.briefing-card { max-height: min(100dvh - 40px, 100vh - 40px); }
+.campaign-screen { max-height: min(100dvh - 40px, 100vh - 40px); }
+.game-over-card { max-height: min(100dvh - 24px, 100vh - 24px); }
+.editor-screen { max-height: calc(100vh - 44px); overflow: auto; }
+.editor-screen { max-height: min(100dvh - 44px, 100vh - 44px); }
+@media (max-width: 480px) {
+  .briefing-card { max-height: min(100dvh - 20px, 100vh - 20px); }
+  .campaign-screen { max-height: min(100dvh - 20px, 100vh - 20px); }
+}
+
+/* Phase 7.1: tile inspector — the touch replacement for hover tooltips. The min-height steadies the common terrain-only readings so moving between tiles does not jitter; a tile holding a unit legitimately grows past it, and reserving room for that case instead would waste scarce vertical space on every other tile. */
+.tile-inspector { min-height: 145px; margin-top: 12px; padding: 13px; border: 1px solid #40594f; border-radius: 6px; background: #18231f; }
+.tile-inspector-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.tile-inspector-head h3 { margin: 2px 0 0; color: #f4f0e5; font-family: 'Barlow Condensed', sans-serif; font-size: 20px; }
+.tile-inspector-coordinate { flex: none; padding: 4px 9px; color: #9eb6a8; font-size: 10px; font-weight: 700; border: 1px solid #354b42; border-radius: 20px; background: #101a17; }
+.tile-inspector-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; margin: 10px 0 0; overflow: hidden; border: 1px solid #33483f; border-radius: 4px; background: #33483f; }
+.tile-inspector-rows div { display: grid; gap: 2px; padding: 6px 8px; background: #101a17; }
+.tile-inspector-rows dt { margin: 0; color: #9db6a8; font-size: 9px; font-weight: 700; letter-spacing: .08em; }
+.tile-inspector-rows dd { margin: 0; color: #f4f0e5; font-size: 12px; font-weight: 700; }
+/* auto-fit (not auto-fill) collapses unused tracks to 0 width instead of leaving an empty stretched cell when a tile has fewer than the columns-worth of rows (e.g. just 防御/占領値); the minmax floor still keeps 2 columns on a ~340px phone panel and lets wider desktop panels grow to 3-4. */
+.tile-inspector-unit { margin-top: 10px; padding: 9px 10px; border-left: 2px solid #5a9db8; border-radius: 0 4px 4px 0; background: #14232966; }
+.tile-inspector-unit h4 { margin: 0 0 6px; color: #bdeaff; font-size: 12px; font-weight: 700; }
+.tile-inspector-unit .tile-inspector-rows { margin-top: 0; }
+.tile-inspector-fog { margin: 10px 0 0; padding: 7px 9px; color: #e8d6ac; font-size: 11px; line-height: 1.4; border-left: 2px solid #e8b33b; background: #1d1c12; }
+
+/* Phase 7.2: mobile quick-action bar. Fixed above the board on phones/tablets so the most frequent actions never need a scroll back up to the header; desktop keeps the existing header controls. */
+.mobile-action-bar { display: none; }
+@media (max-width: 900px) {
+  .mobile-action-bar { position: fixed; z-index: 15; inset: auto 0 0 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); border-top: 1px solid #496158; background: linear-gradient(0deg, #101817f2, #16221ff2); box-shadow: 0 -12px 30px #0007; }
+  .mobile-action { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 3px 6px; min-height: 52px; padding: 6px 4px; color: #dce8df; font-size: 11px; font-weight: 700; line-height: 1.15; border: 0; border-radius: 4px; background: #21312b; }
+  .mobile-action span { font-size: 16px; }
+  .mobile-action strong { color: #f6d370; }
+  .mobile-action:hover:not(:disabled), .mobile-action:focus-visible { background: #354a3d; }
+  .mobile-action-primary { color: #fff6e9; background: #c94437; }
+  .mobile-action-primary:hover:not(:disabled), .mobile-action-primary:focus-visible { background: #e05243; }
+  .game-shell { padding-bottom: max(88px, calc(76px + env(safe-area-inset-bottom))); }
+}
+[inert] .mobile-action-bar { opacity: .45; pointer-events: none; }
+
+/* Phase 7.5: reclaim the phone's first screen so the board is visible without scrolling. The keyboard walkthrough stays in the accessibility tree for `aria-describedby`, but a touch device has no use for its four lines of text, and the turn readout shares a row with the end-turn button instead of stacking. */
+@media (max-width: 640px) {
+  .board-instructions { position: fixed; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .command-bar { min-height: 0; padding: 10px 12px; }
+  .brand h1 { font-size: 26px; }
+  .turn-indicator { min-width: 0; margin-left: 0; }
+  .end-turn { flex: 1; width: auto; }
+}
+
+/* Phase 7.3: index.html adds description/theme-color/viewport-fit meta only — no CSS needed there. */
+
+/* Phase 7.4: map themes. theme-temperate is the original green look, kept as the unqualified base styling below; theme-desert (migrated from the old .desert class, above) keeps its dedicated key-art asset. The three new themes reuse battlefield-bg.png with a CSS gradient wash for the frame tint — no new image assets. */
+.battlefield-wrap.theme-snow::before { background: linear-gradient(160deg, #dce9ec73, #17242640), url('/assets/battlefield-bg.png') center / cover; opacity: .24; filter: saturate(.75); }
+.battlefield-wrap.theme-snow .board { border-color: #6d8492; }
+.battlefield-wrap.theme-snow .tile.plain { background-image: linear-gradient(135deg, #dce8ea 0 50%, #c9dbdd 50%); }
+.battlefield-wrap.theme-snow .tile.forest { background-image: radial-gradient(circle at 25% 30%, #16332a 0 8%, transparent 9%), radial-gradient(circle at 72% 68%, #16332a 0 10%, transparent 11%), linear-gradient(135deg, #2c4b3b, #1c3529); }
+.battlefield-wrap.theme-snow .tile.mountain { background-image: linear-gradient(135deg, transparent 42%, #bcc7d2 43% 56%, transparent 57%), linear-gradient(45deg, transparent 42%, #7d8fa1 43% 56%, transparent 57%), linear-gradient(#8fa0ad, #66788a); }
+.battlefield-wrap.theme-snow .tile.road { background-image: linear-gradient(18deg, transparent 40%, #eef3f2 41% 58%, transparent 59%), linear-gradient(#b7c8cd, #9db3ba); }
+.battlefield-wrap.theme-snow .tile.sea { background-image: repeating-linear-gradient(165deg, #5aa8c4 0 5px, #4189a8 6px 10px); }
+.battlefield-wrap.theme-snow .tile.city, .battlefield-wrap.theme-snow .tile.factory { background-color: #b7c4cc; }
+.battlefield-wrap.theme-snow .tile.capital { background-color: #b9766a; }
+.battlefield-wrap.theme-snow .tile.port { background-image: linear-gradient(145deg, #244a5c, #4f93a8); }
+
+.battlefield-wrap.theme-urban::before { background: linear-gradient(160deg, #34362f92, #101010c2), url('/assets/battlefield-bg.png') center / cover; opacity: .3; filter: saturate(.7) brightness(.95); }
+.battlefield-wrap.theme-urban .board { border-color: #5a5d55; }
+.battlefield-wrap.theme-urban .tile.plain { background-image: linear-gradient(135deg, #8d8f89 0 50%, #797b76 50%); }
+.battlefield-wrap.theme-urban .tile.forest { background-image: radial-gradient(circle at 25% 30%, #4a5432 0 8%, transparent 9%), radial-gradient(circle at 72% 68%, #4a5432 0 10%, transparent 11%), linear-gradient(135deg, #5c6b3f, #495735); }
+.battlefield-wrap.theme-urban .tile.mountain { background-image: linear-gradient(135deg, transparent 42%, #7d818a 43% 56%, transparent 57%), linear-gradient(45deg, transparent 42%, #5a5e66 43% 56%, transparent 57%), linear-gradient(#6b6f77, #4c4f56); }
+.battlefield-wrap.theme-urban .tile.road { background-image: linear-gradient(90deg, transparent 44%, #d8d3c4 45% 55%, transparent 56%), linear-gradient(0deg, transparent 44%, #d8d3c4 45% 55%, transparent 56%), linear-gradient(#9a978c, #86847a); }
+.battlefield-wrap.theme-urban .tile.sea { background-image: repeating-linear-gradient(165deg, #24404b 0 5px, #182d33 6px 10px); }
+.battlefield-wrap.theme-urban .tile.city, .battlefield-wrap.theme-urban .tile.factory { background-color: #6d7168; }
+.battlefield-wrap.theme-urban .tile.capital { background-color: #8a4a3f; }
+.battlefield-wrap.theme-urban .tile.port { background-image: linear-gradient(145deg, #0f2c34, #1f4a55); }
+
+.battlefield-wrap.theme-coastal::before { background: linear-gradient(160deg, #1fb6c94a, #0d3a4066), url('/assets/battlefield-bg.png') center / cover; opacity: .26; }
+.battlefield-wrap.theme-coastal .board { border-color: #2c8a92; }
+.battlefield-wrap.theme-coastal .tile.plain { background-image: linear-gradient(135deg, #cdd79a 0 50%, #b9c684 50%); }
+.battlefield-wrap.theme-coastal .tile.forest { background-image: radial-gradient(circle at 25% 30%, #1f5138 0 8%, transparent 9%), radial-gradient(circle at 72% 68%, #1f5138 0 10%, transparent 11%), linear-gradient(135deg, #3f8a5e, #2c6b48); }
+.battlefield-wrap.theme-coastal .tile.mountain { background-image: linear-gradient(135deg, transparent 42%, #e4d3a8 43% 56%, transparent 57%), linear-gradient(45deg, transparent 42%, #c9b183 43% 56%, transparent 57%), linear-gradient(#d8c79c, #b89f74); }
+.battlefield-wrap.theme-coastal .tile.road { background-image: linear-gradient(18deg, transparent 40%, #f0e0b8 41% 58%, transparent 59%), linear-gradient(#c9b47f, #b39d68); }
+.battlefield-wrap.theme-coastal .tile.sea { background-image: repeating-linear-gradient(165deg, #1fb6c9 0 5px, #159fb3 6px 10px); }
+.battlefield-wrap.theme-coastal .tile.city, .battlefield-wrap.theme-coastal .tile.factory { background-color: #d9c9a0; }
+.battlefield-wrap.theme-coastal .tile.capital { background-color: #c96a53; }
+.battlefield-wrap.theme-coastal .tile.port { background-image: linear-gradient(145deg, #0d6b7a, #1fb6c9); }
+
+/* Phase 7.5: small gaps — scenario/save warning banner, production target + summary lines, facility-ready tile marker, facility-target ring, legend swatch. */
+.scenario-warning { margin: 14px 0 0; padding: 10px 14px; color: #ffd9c9; font-size: 12px; font-weight: 700; line-height: 1.5; border: 1px solid #a8503f; border-left: 4px solid #e2725a; border-radius: 4px; background: linear-gradient(100deg, #2a1712, #1c120f); box-shadow: 0 8px 20px #0004; }
+.scenario-warning + .scenario-warning { margin-top: 8px; }
+.production-target { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 10px 0 0; padding: 7px 9px; color: #c2d1c6; font-size: 11px; border: 1px solid #40594f; border-radius: 4px; background: #101a17; }
+.production-target strong { color: #f6d370; font-weight: 700; }
+.production-target .save-action { margin-left: auto; padding: 5px 8px; font-size: 10px; }
+.production-summary { margin: 8px 0 0; color: #9db6a8; font-size: 10px; font-weight: 700; letter-spacing: .06em; }
+.production-summary strong { color: #dce8df; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; }
+.facility-ready-marker { top: auto; left: 4px; bottom: 4px; color: #0f2418; background: #7bd68f; }
+.tile.facility-target { box-shadow: inset 0 0 0 2px #6fd1e8, inset 0 0 0 6px #6fd1e855; }
+.tile.selected.facility-target { box-shadow: inset 0 0 0 3px #ef7d5f, inset 0 0 0 7px #6fd1e8; }
+.tile.reachable.facility-target { box-shadow: inset 0 0 0 3px #ffe066, inset 0 0 0 7px #6fd1e8; }
+.facility-ready-dot { color: #0f2418; border-radius: 2px; background: #7bd68f; }
