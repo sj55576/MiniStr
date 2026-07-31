@@ -10,7 +10,7 @@ import { type GameResult, type GameState, type PlayerId } from './types';
  * replays remain valid.  Invalid cargo links are rejected by `isGameState` and
  * are never inferred or repaired while importing a replay.
  */
-export const REPLAY_SCHEMA_VERSION = 2 as const;
+export const REPLAY_SCHEMA_VERSION = 3 as const;
 export const MAX_REPLAY_BYTES = 1_000_000;
 const MAX_REPLAY_COMMANDS = 100_000;
 
@@ -37,12 +37,16 @@ export interface ReplayFile {
 }
 
 function migrateReplayV1ToV2(value: Record<string, unknown>): Record<string, unknown> {
+  return { ...structuredClone(value), schemaVersion: 2 };
+}
+function migrateReplayV2ToV3(value: Record<string, unknown>): Record<string, unknown> {
   return { ...structuredClone(value), schemaVersion: REPLAY_SCHEMA_VERSION };
 }
 
 function migrateReplay(value: Record<string, unknown>): Record<string, unknown> | undefined {
   if (value.schemaVersion === REPLAY_SCHEMA_VERSION) return value;
-  if (value.schemaVersion === 1) return migrateReplayV1ToV2(value);
+  if (value.schemaVersion === 2) return migrateReplayV2ToV3(value);
+  if (value.schemaVersion === 1) return migrateReplayV2ToV3(migrateReplayV1ToV2(value));
   return undefined;
 }
 
