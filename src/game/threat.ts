@@ -1,4 +1,4 @@
-import { reachablePositions } from './commands';
+import { reachablePositionsForPlayer } from './commands';
 import { visibleEnemies } from './fog';
 import { isDeployedUnit, type GameState, type PlayerId } from './types';
 import { unitStats } from './units';
@@ -17,7 +17,7 @@ export function enemyThreatPreview(state: GameState, unitId: string, viewer: Pla
 
   const movement = new Set<string>();
   const origins = [unit.position];
-  if (!unitStats[unit.kind].indirect) for (const position of reachablePositions(state, unit.id)) {
+  if (!unitStats[unit.kind].indirect) for (const position of reachablePositionsForPlayer(state, unit.id, viewer)) {
     movement.add(key(position.x, position.y));
     origins.push(position);
   }
