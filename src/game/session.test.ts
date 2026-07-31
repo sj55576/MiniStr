@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyGameCommand, attackUnit, AUTO_SAVE_KEY, createBoard, createGameState, loadGame, MAX_SAVE_BYTES, moveUnit,
-  hasSavedGame, parseSavedGame, replayCommands, saveGame, SAVE_SCHEMA_VERSION, type GameCommand,
+  hasSavedGame, isGameCommand, parseSavedGame, replayCommands, saveGame, SAVE_SCHEMA_VERSION, type GameCommand,
   createScenarioInitialState, saveCustomScenario, scenarioById, type GameState, type StorageLike, unitStats,
 } from './index';
 
@@ -194,5 +194,26 @@ describe('versioned save persistence', () => {
     expect(saveGame(unavailable, AUTO_SAVE_KEY, {
       mapId: 'skirmish', difficulty: 'normal', initialState, commands: [], gameState: initialState,
     })).toEqual({ ok: false, error: 'セーブデータを書き込めませんでした。' });
+  });
+});
+
+
+describe('wait command persistence', () => {
+  it('replays and validates explicit wait commands', () => {
+    const initial = withUnit();
+    const commands: GameCommand[] = [{ type: 'wait', unitId: 'r1' }, { type: 'endTurn' }, { type: 'endTurn' }];
+    const replayed = replayCommands(initial, commands);
+    expect(replayed.ok && replayed.value.units[0]).toMatchObject({ hasMoved: false, hasActed: false });
+    expect(isGameCommand({ type: 'wait', unitId: 'r1' })).toBe(true);
+    expect(isGameCommand({ type: 'wait', unitId: 1 })).toBe(false);
+  });
+
+  it('migrates a v2 save to the current schema', () => {
+    const storage = new MemoryStorage();
+    const initialState = canonicalSkirmish();
+    expect(saveGame(storage, AUTO_SAVE_KEY, { mapId: 'skirmish', difficulty: 'normal', initialState, commands: [], gameState: initialState }).ok).toBe(true);
+    const legacy = { ...JSON.parse(storage.data.get(AUTO_SAVE_KEY)!), schemaVersion: 2 };
+    const parsed = parseSavedGame(JSON.stringify(legacy));
+    expect(parsed.ok && parsed.value.schemaVersion).toBe(SAVE_SCHEMA_VERSION);
   });
 });

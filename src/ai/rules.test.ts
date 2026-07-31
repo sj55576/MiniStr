@@ -319,9 +319,9 @@ describe('CPU command legality and hidden movement', () => {
     ] });
 
     const action = chooseCpuAction(state, 'hard');
-    expect(action).toEqual({ type: 'move', unitId: 'tank', destination: { x: 0, y: 0 } });
+    expect(action).toEqual({ type: 'wait', unitId: 'tank' });
     const applied = applyGameCommand(state, action);
-    expect(applied.ok && applied.value.units.find(unit => unit.id === 'tank')).toMatchObject({ position: { x: 0, y: 0 }, hasMoved: true });
+    expect(applied.ok && applied.value.units.find(unit => unit.id === 'tank')).toMatchObject({ position: { x: 0, y: 0 }, hasMoved: true, hasActed: true });
   });
 
   it('skips an acted unit and emits a legal move for a remaining unit', () => {
@@ -349,5 +349,25 @@ describe('CPU command legality and hidden movement', () => {
     const result = applyGameCommand(concealed, action);
     expect(result.ok).toBe(true);
     expect(result.ok && result.value.units.find(unit => unit.id === 'tank')).toMatchObject({ position: { x: 3, y: 0 } });
+  });
+});
+
+
+describe('CPU fuel exhaustion recovery', () => {
+  it('waits an out-of-fuel unit and continues with later units', () => {
+    const board = createBoard(6, 1);
+    board.terrain[0]![5] = { kind: 'capital', owner: 'blue', capturePoints: 20 };
+    const state = stateWith(createGameState(board), { units: [
+      { id: 'a-stalled', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 0, hasMoved: false, hasActed: false },
+      { id: 'z-ready', kind: 'infantry', owner: 'red', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ] });
+    const stalledAction = chooseCpuAction(state);
+    expect(stalledAction).toEqual({ type: 'wait', unitId: 'a-stalled' });
+    const afterWait = applyGameCommand(state, stalledAction);
+    expect(afterWait.ok).toBe(true);
+    if (!afterWait.ok) return;
+    const nextAction = chooseCpuAction(afterWait.value);
+    expect(nextAction).toMatchObject({ type: 'move', unitId: 'z-ready' });
+    expect(applyGameCommand(afterWait.value, nextAction).ok).toBe(true);
   });
 });

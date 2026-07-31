@@ -12,6 +12,22 @@ import { isDeployedUnit, otherPlayer, type GameResult, type GameState, type Play
 const fail = <T = GameState>(error: string): GameResult<T> => ({ ok: false, error });
 const succeed = <T>(value: T): GameResult<T> => ({ ok: true, value });
 
+/** Ends a deployed active unit's remaining turn without moving, attacking, or capturing. */
+export function waitUnit(state: GameState, unitId: string): GameResult {
+  if (state.winner) return fail('Game has finished');
+  const unit = state.units.find(candidate => candidate.id === unitId);
+  if (!unit) return fail('Unit not found');
+  if (!isDeployedUnit(unit)) return fail('Embarked units cannot wait');
+  if (unit.owner !== state.activePlayer) return fail('Unit belongs to the other player');
+  if (unit.hasActed) return fail('Unit has already acted');
+  return succeed({
+    ...state,
+    units: state.units.map(candidate => candidate.id === unitId
+      ? { ...candidate, hasMoved: true, hasActed: true }
+      : candidate),
+  });
+}
+
 export function moveUnit(state: GameState, unitId: string, destination: Position): GameResult {
   if (state.winner) return fail('Game has finished');
   const unit = state.units.find(candidate => candidate.id === unitId);
