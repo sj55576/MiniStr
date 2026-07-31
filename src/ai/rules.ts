@@ -2,7 +2,6 @@ import { forecastCombat, terrainDefenseReduction } from '../game/combat';
 import { reachablePositionsForPlayer } from '../game/commands';
 import { canProduceUnit, isPropertyTerrainKind } from '../game/facilities';
 import { visibleEnemies as getVisibleEnemies } from '../game/fog';
-import { unitAt } from '../game/state';
 import { manhattanDistance, movementCost, terrainAt } from '../game/terrain';
 import { isDeployedUnit, type Board, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
 import { unitStats } from '../game/units';
@@ -110,11 +109,17 @@ function preferredProduction(state: GameState, player: PlayerId): UnitKind | und
     .sort((a, b) => (weights[b] - counts[b]) - (weights[a] - counts[a]) || unitStats[a].cost - unitStats[b].cost)[0];
 }
 
-function emptyOwnedFacility(state: GameState, player: PlayerId, kind: UnitKind): Position | undefined {
+/** Returns occupancy confirmed by the CPU's current observation, never hidden enemies. */
+function knownUnitAt(state: GameState, player: PlayerId, position: Position, visibleEnemies: readonly Unit[]): boolean {
+  return state.units.some(unit => isDeployedUnit(unit) && unit.position.x === position.x && unit.position.y === position.y
+    && (unit.owner === player || visibleEnemies.some(enemy => enemy.id === unit.id)));
+}
+
+function emptyOwnedFacility(state: GameState, player: PlayerId, kind: UnitKind, visibleEnemies: readonly Unit[]): Position | undefined {
   for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
     const position = { x, y };
     const tile = terrainAt(state.board, position);
-    if (tile?.owner === player && !unitAt(state, position)) {
+    if (tile?.owner === player && !knownUnitAt(state, player, position, visibleEnemies)) {
       if (canProduceUnit(tile.kind, kind)) return position;
     }
   }
@@ -134,7 +139,7 @@ function specialistProduction(state: GameState, player: PlayerId, visibleEnemies
   if (!ownKinds.has('bomber') && visible.some(unit => ['tank', 'artillery', 'rocket', 'destroyer'].includes(unit.kind))) candidates.push('bomber');
   for (const kind of candidates) {
     if (unitStats[kind].cost > gold) continue;
-    const factory = emptyOwnedFacility(state, player, kind);
+    const factory = emptyOwnedFacility(state, player, kind, visibleEnemies);
     if (factory) return { type: 'produce', factory, kind };
   }
   return undefined;
@@ -147,14 +152,14 @@ function productionAction(state: GameState, player: PlayerId, config: CpuDifficu
     .some(unit => targets.some(target => !sameLandComponent(context.landComponents, unit.position, target)));
   const hasLandingShip = state.units.some(unit => unit.owner === player && unit.kind === 'landingShip');
   if (hasRemoteInfantry && !hasLandingShip && state.players[player].gold >= unitStats.landingShip.cost) {
-    const port = emptyOwnedFacility(state, player, 'landingShip');
+    const port = emptyOwnedFacility(state, player, 'landingShip', context.visibleEnemies);
     if (port) return { type: 'produce', factory: port, kind: 'landingShip' };
   }
   const specialist = specialistProduction(state, player, context.visibleEnemies);
   if (specialist) return specialist;
   const kind = preferredProduction(state, player);
   if (!kind) return undefined;
-  const factory = emptyOwnedFacility(state, player, kind);
+  const factory = emptyOwnedFacility(state, player, kind, context.visibleEnemies);
   return factory ? { type: 'produce', factory, kind } : undefined;
 }
 
@@ -276,7 +281,7 @@ export function evaluateCpuPosition(
 }
 
 /** Choose one transport step before ordinary movement so island objectives are never stranded. */
-function transportAction(state: GameState, player: PlayerId, targets: readonly Position[], components: ReadonlyMap<string, number>): CpuAction | undefined {
+function transportAction(state: GameState, player: PlayerId, targets: readonly Position[], components: ReadonlyMap<string, number>, visibleEnemies: readonly Unit[]): CpuAction | undefined {
   if (!targets.length) return undefined;
   const units = orderedUnits(state, player);
 
@@ -285,7 +290,7 @@ function transportAction(state: GameState, player: PlayerId, targets: readonly P
     const cargo = state.units.find(unit => unit.embarkedIn === transport.id);
     if (!cargo) continue;
     const destination = adjacentPositions(transport.position)
-      .filter(position => Number.isFinite(movementCost(state.board, position, 'infantry')) && !unitAt(state, position)
+      .filter(position => Number.isFinite(movementCost(state.board, position, 'infantry')) && !knownUnitAt(state, player, position, visibleEnemies)
         && targets.some(target => sameLandComponent(components, position, target)))
       .map(position => ({ position, target: nearestTarget(position, targets) }))
       .filter((candidate): candidate is { position: Position; target: Position } => candidate.target !== undefined)
@@ -353,7 +358,7 @@ export function chooseCpuAction(state: GameState, difficulty: CpuDifficulty = 'n
   if (capture) return { type: 'capture', unitId: capture.id };
   const context = createCpuPlanningContext(state, player, config);
   return attackAction(state, player, config, context.visibleEnemies)
-    ?? transportAction(state, player, context.targets, context.landComponents)
+    ?? transportAction(state, player, context.targets, context.landComponents, context.visibleEnemies)
     ?? productionAction(state, player, config, context)
     ?? moveAction(state, player, config, context)
     ?? { type: 'endTurn' };
