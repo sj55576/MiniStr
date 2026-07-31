@@ -145,6 +145,20 @@ describe('CPU positional evaluation and production', () => {
     expect(chooseCpuAction(withHiddenEnemy)).toEqual(chooseCpuAction(base));
   });
 
+  it('does not let an unseen enemy alter its production choice', () => {
+    const board = createBoard(3, 1);
+    board.terrain[0]![0] = { kind: 'factory', owner: 'red', capturePoints: 20 };
+    board.terrain[0]![2] = { kind: 'capital', owner: 'blue', capturePoints: 20 };
+    const base = stateWith(createGameState(board), {
+      players: { red: { gold: 10_000, income: 0 }, blue: { gold: 0, income: 0 } },
+    });
+    const withHiddenEnemy = stateWith(base, { units: [
+      { id: 'hidden', kind: 'infantry', owner: 'blue', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ] });
+
+    expect(chooseCpuAction(withHiddenEnemy)).toEqual(chooseCpuAction(base));
+  });
+
   it('shares one fog-safe observation set across positional evaluations', () => {
     const state = stateWithVisibleThreat();
     const tank = state.units[0] as DeployedUnit;
