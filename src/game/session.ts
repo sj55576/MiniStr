@@ -1,19 +1,20 @@
-import { attackUnit, captureProperty, disembarkUnit, embarkUnit, endTurn, moveUnit, produceUnit } from './commands';
+import { attackUnit, captureProperty, disembarkUnit, embarkUnit, endTurn, moveUnit, produceUnit, waitUnit } from './commands';
 import { createScenarioInitialState, scenarioById } from './maps';
 import { terrainKindSet, type GameResult, type GameState, type Position, type UnitKind } from './types';
 import { isEmbarkableUnit, transportCapacity, unitKindSet } from './units';
 
 /**
- * Schema v2 establishes an explicit migration hop. Malformed cargo is rejected
+ * Schema v3 adds the explicit `wait` command. Malformed cargo is rejected
  * by `isGameState` instead of being repaired during load.
  */
-export const SAVE_SCHEMA_VERSION = 2 as const;
+export const SAVE_SCHEMA_VERSION = 3 as const;
 export const MAX_SAVE_BYTES = 1_000_000;
 export const MANUAL_SAVE_KEY = 'ministr.save.manual';
 export const AUTO_SAVE_KEY = 'ministr.save.auto';
 
 export type GameCommand =
   | { type: 'move'; unitId: string; destination: Position }
+  | { type: 'wait'; unitId: string }
   | { type: 'attack'; unitId: string; targetId: string }
   | { type: 'capture'; unitId: string }
   | { type: 'produce'; factory: Position; kind: UnitKind }
@@ -33,14 +34,18 @@ export interface SavedGame {
   savedAt: string;
 }
 
-/** v1 had the same fields; keeping this named migration makes later changes append-only. */
+/** v1 had the same fields; keeping named migrations makes later changes append-only. */
 function migrateSaveV1ToV2(value: Record<string, unknown>): Record<string, unknown> {
+  return { ...structuredClone(value), schemaVersion: 2 };
+}
+function migrateSaveV2ToV3(value: Record<string, unknown>): Record<string, unknown> {
   return { ...structuredClone(value), schemaVersion: SAVE_SCHEMA_VERSION };
 }
 
 function migrateSavedGame(value: Record<string, unknown>): Record<string, unknown> | undefined {
   if (value.schemaVersion === SAVE_SCHEMA_VERSION) return value;
-  if (value.schemaVersion === 1) return migrateSaveV1ToV2(value);
+  if (value.schemaVersion === 2) return migrateSaveV2ToV3(value);
+  if (value.schemaVersion === 1) return migrateSaveV2ToV3(migrateSaveV1ToV2(value));
   return undefined;
 }
 
@@ -53,6 +58,7 @@ export interface StorageLike {
 export function applyGameCommand(state: GameState, command: GameCommand): GameResult {
   switch (command.type) {
     case 'move': return moveUnit(state, command.unitId, command.destination);
+    case 'wait': return waitUnit(state, command.unitId);
     case 'attack': return attackUnit(state, command.unitId, command.targetId);
     case 'capture': return captureProperty(state, command.unitId);
     case 'produce': return produceUnit(state, command.factory, command.kind);
@@ -121,6 +127,7 @@ export function isGameCommand(value: unknown): value is GameCommand {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
   if (value.type === 'endTurn') return true;
   if (value.type === 'move') return typeof value.unitId === 'string' && isPosition(value.destination);
+  if (value.type === 'wait') return typeof value.unitId === 'string';
   if (value.type === 'attack') return typeof value.unitId === 'string' && typeof value.targetId === 'string';
   if (value.type === 'capture') return typeof value.unitId === 'string';
   if (value.type === 'embark') return typeof value.unitId === 'string' && typeof value.transportId === 'string';
