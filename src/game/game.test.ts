@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, createScenarioInitialState, disembarkUnit, embarkUnit, endTurn, forecastCombat, getConditionProgress, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, parseReplay, parseSavedGame, produceUnit, reachablePositions, reachablePositionsForPlayer, replayCommands, saveCustomScenario, saveGame, scenarioById, serializeReplay, terrainRules, unitAt, unitStats, visibleEnemies, type GameCommand, type GameState, type StorageLike } from './index';
+import { applyGameCommand, attackUnit, captureProperty, collectIncome, createBoard, createGameState, createReplay, createScenarioCatalog, createScenarioInitialState, disembarkUnit, embarkUnit, endTurn, forecastCombat, getConditionProgress, isGameCommand, isGameState, loadScenarioDefinitions, maps, movementCosts, moveUnit, nextRandom, waitUnit, parseReplay, parseSavedGame, produceUnit, reachablePositions, reachablePositionsForPlayer, replayCommands, saveCustomScenario, saveGame, scenarioById, serializeReplay, terrainRules, unitAt, unitStats, visibleEnemies, type GameCommand, type GameState, type StorageLike } from './index';
 
 const stateWith = (state: GameState, patch: Partial<GameState>): GameState => ({ ...state, ...patch });
 
@@ -744,5 +744,28 @@ describe('Capture interruption and fuel timing', () => {
     const afterRedEnds = endTurn(moved.value);
     expect(afterRedEnds.units.find(unit => unit.id === 'fighter')).toBeDefined();
     expect(endTurn(afterRedEnds).units.find(unit => unit.id === 'fighter')).toBeUndefined();
+  });
+});
+
+
+describe('wait command', () => {
+  it('ends a unit action without moving or consuming fuel, including at zero fuel', () => {
+    const state = createGameState(createBoard(2, 1));
+    state.units = [{ id: 'out-of-fuel', kind: 'tank', owner: 'red', position: { x: 0, y: 0 }, hp: 100, fuel: 0, hasMoved: false, hasActed: false }];
+    const result = waitUnit(state, 'out-of-fuel');
+    expect(result).toEqual({ ok: true, value: expect.objectContaining({
+      units: [expect.objectContaining({ id: 'out-of-fuel', position: { x: 0, y: 0 }, fuel: 0, hasMoved: true, hasActed: true })],
+    }) });
+  });
+
+  it('rejects waiting for an already acted or embarked unit', () => {
+    const state = createGameState(createBoard(2, 1));
+    state.units = [
+      { id: 'acted', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: true, hasActed: true },
+      { id: 'cargo', kind: 'infantry', owner: 'red', embarkedIn: 'ship', hp: 100, hasMoved: false, hasActed: false },
+      { id: 'ship', kind: 'landingShip', owner: 'red', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    expect(waitUnit(state, 'acted')).toEqual({ ok: false, error: 'Unit has already acted' });
+    expect(waitUnit(state, 'cargo')).toEqual({ ok: false, error: 'Embarked units cannot wait' });
   });
 });
