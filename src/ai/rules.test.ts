@@ -385,3 +385,51 @@ describe('CPU fuel exhaustion recovery', () => {
     expect(applyGameCommand(afterWait.value, nextAction).ok).toBe(true);
   });
 });
+
+
+function benchmarkCpuTurnState(): GameState {
+  // Keep this independent from the scenario catalog: it fixes the intended
+  // 20×15 scale and exactly 20 deployed units.
+  const board = createBoard(20, 15);
+  board.terrain[7]![0] = { kind: 'capital', owner: 'red', capturePoints: 20 };
+  board.terrain[7]![19] = { kind: 'capital', owner: 'blue', capturePoints: 20 };
+  const rows = [1, 2, 3, 4, 5, 9, 10, 11, 12, 13];
+  const kinds = ['infantry', 'recon', 'tank', 'artillery', 'rocket', 'antiAir', 'fighter', 'bomber', 'tank', 'infantry'] as const;
+  const state = createGameState(board);
+  state.activePlayer = 'blue';
+  state.units = kinds.flatMap((kind, index) => [
+    { id: `red-${index}`, kind, owner: 'red' as const, position: { x: 2, y: rows[index]! }, hp: 100, hasMoved: false, hasActed: false },
+    { id: `blue-${index}`, kind, owner: 'blue' as const, position: { x: 17, y: rows[index]! }, hp: 100, hasMoved: false, hasActed: false },
+  ]);
+  return state;
+}
+
+function playCpuTurnForBenchmark(initial: GameState): { state: GameState; steps: number; error?: string } {
+  let state = initial;
+  let steps = 0;
+  const maximumSteps = Math.max(30, state.units.filter(unit => unit.owner === 'blue').length * 3 + 5);
+  while (state.activePlayer === 'blue' && !state.winner && steps < maximumSteps) {
+    const applied = applyGameCommand(state, chooseCpuAction(state, 'normal'));
+    steps += 1;
+    if (!applied.ok) return { state, steps, error: applied.error };
+    state = applied.value;
+  }
+  return { state, steps };
+}
+
+describe('CPU planning performance', () => {
+  it('finishes a 20-unit, 20x15 CPU turn within a generous regression budget', () => {
+    const initial = benchmarkCpuTurnState();
+    expect(initial.units).toHaveLength(20);
+
+    const startedAt = performance.now();
+    const result = playCpuTurnForBenchmark(initial);
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(result.error).toBeUndefined();
+    expect(result.state.activePlayer).toBe('red');
+    // This permits wide shared-CI variance while catching accidental
+    // per-candidate full-board recomputation.
+    expect(elapsedMs).toBeLessThan(1_000);
+  });
+});
