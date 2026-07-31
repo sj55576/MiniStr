@@ -38,6 +38,7 @@ export type CpuAction =
   | { type: 'attack'; unitId: string; targetId: string }
   | { type: 'produce'; factory: Position; kind: UnitKind }
   | { type: 'move'; unitId: string; destination: Position }
+  | { type: 'wait'; unitId: string }
   | { type: 'embark'; unitId: string; transportId: string }
   | { type: 'disembark'; transportId: string; destination: Position }
   | { type: 'endTurn' };
@@ -324,12 +325,16 @@ function moveAction(state: GameState, player: PlayerId, config: CpuDifficultyCon
     if (unit.hasMoved || unit.hasActed) continue;
     // Advance across the unit's whole movement range (Dijkstra reachability), weighing cover,
     // resupply and visible counterattack risk instead of raw distance alone.
-    // Include the current position as an explicit wait order. A wait is encoded
-    // as a zero-cost move so the unit becomes moved and cannot be selected again.
+    // Include the current position as an explicit wait order. Unlike a zero-cost
+    // move, waiting is legal even when a ground unit has no fuel left.
     const destination = [unit.position, ...reachablePositionsForPlayer(state, unit.id, player)]
       .map(position => ({ position, score: evaluateCpuPosition(state, player, unit, position, targets, config, context.visibleEnemies) }))
       .sort((a, b) => b.score - a.score || a.position.y - b.position.y || a.position.x - b.position.x)[0]?.position;
-    if (destination) return { type: 'move', unitId: unit.id, destination };
+    if (destination) {
+      if (destination.x === unit.position.x && destination.y === unit.position.y)
+        return { type: 'wait', unitId: unit.id };
+      return { type: 'move', unitId: unit.id, destination };
+    }
   }
   return undefined;
 }
