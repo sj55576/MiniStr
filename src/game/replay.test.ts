@@ -177,3 +177,12 @@ describe('versioned replay files', () => {
       .toEqual({ ok: false, error: 'リプレイの対局サマリーがコマンド履歴と一致しません。' });
   });
 });
+
+
+describe('wait command replay compatibility', () => {
+  it('migrates a v2 replay to the current schema', () => {
+    const legacy = { ...finishedReplay(), schemaVersion: 2 };
+    const parsed = parseReplay(JSON.stringify(legacy));
+    expect(parsed.ok && parsed.value.schemaVersion).toBe(REPLAY_SCHEMA_VERSION);
+  });
+});
