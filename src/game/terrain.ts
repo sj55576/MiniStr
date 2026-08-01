@@ -9,6 +9,7 @@ const movementByProfile: Record<TerrainKind, Record<MovementProfile, number>> = 
   sea: { foot: Infinity, vehicle: Infinity, air: 1, sea: 1 },
   city: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
   factory: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
+  airport: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
   port: { foot: 1, vehicle: 1, air: 1, sea: 1 },
   capital: { foot: 1, vehicle: 1, air: 1, sea: Infinity },
 };
@@ -24,6 +25,7 @@ export const terrainRules: Record<TerrainKind, { movement: Record<UnitKind, numb
   sea: { movement: unitMovement('sea'), defense: 0 },
   city: { movement: unitMovement('city'), defense: 3 },
   factory: { movement: unitMovement('factory'), defense: 3 },
+  airport: { movement: unitMovement('airport'), defense: 3 },
   // A port is a coastal facility: infantry can capture it and ships can dock there.
   port: { movement: unitMovement('port'), defense: 3 },
   capital: { movement: unitMovement('capital'), defense: 4 },

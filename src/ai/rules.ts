@@ -2,6 +2,7 @@ import { forecastCombat, terrainDefenseReduction } from '../game/combat';
 import { reachablePositionsForPlayer } from '../game/commands';
 import { canProduceUnit, isPropertyTerrainKind } from '../game/facilities';
 import { visibleEnemies as getVisibleEnemies } from '../game/fog';
+import { scenarioById } from '../game/maps';
 import { manhattanDistance, movementCost, terrainAt } from '../game/terrain';
 import { isDeployedUnit, type Board, type DeployedUnit, type GameState, type PlayerId, type Position, type Unit, type UnitKind } from '../game/types';
 import { unitStats } from '../game/units';
@@ -50,7 +51,6 @@ export interface CpuPlanningContext {
   landComponents: ReadonlyMap<string, number>;
 }
 
-const propertyKinds = new Set(['city', 'factory', 'port', 'capital']);
 type StandardProductionKind = Extract<UnitKind, 'infantry' | 'tank' | 'artillery'>;
 const standardProductionKinds: readonly StandardProductionKind[] = ['infantry', 'tank', 'artillery'];
 
@@ -60,7 +60,7 @@ function orderedUnits(state: GameState, player: PlayerId): DeployedUnit[] {
 
 function canCapture(state: GameState, unit: DeployedUnit): boolean {
   const tile = terrainAt(state.board, unit.position);
-  return !unit.hasActed && unitStats[unit.kind].capturePower > 0 && !!tile && propertyKinds.has(tile.kind) && tile.owner !== unit.owner;
+  return !unit.hasActed && unitStats[unit.kind].capturePower > 0 && !!tile && isPropertyTerrainKind(tile.kind) && tile.owner !== unit.owner;
 }
 
 function favorableAttack(state: GameState, attacker: DeployedUnit, target: Unit, config: CpuDifficultyConfig): boolean {
@@ -120,7 +120,8 @@ function emptyOwnedFacility(state: GameState, player: PlayerId, kind: UnitKind, 
     const position = { x, y };
     const tile = terrainAt(state.board, position);
     if (tile?.owner === player && !knownUnitAt(state, player, position, visibleEnemies)) {
-      if (canProduceUnit(tile.kind, kind)) return position;
+      const productionRule = scenarioById(state.scenarioId)?.productionRules ?? 'legacy-factory-air';
+      if (canProduceUnit(tile.kind, kind, productionRule)) return position;
     }
   }
   return undefined;
@@ -168,7 +169,7 @@ function objectives(state: GameState, player: PlayerId, config: CpuDifficultyCon
   const properties: Position[] = [];
   for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
     const tile = state.board.terrain[y]?.[x];
-    if (!tile || tile.owner === player || !propertyKinds.has(tile.kind)) continue;
+    if (!tile || tile.owner === player || !isPropertyTerrainKind(tile.kind)) continue;
     (tile.kind === 'capital' ? capitals : properties).push({ x, y });
   }
   // Enemy formations participate only after reconnaissance has revealed them.

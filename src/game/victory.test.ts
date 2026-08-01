@@ -12,7 +12,7 @@ const unit = (id: string, owner: 'red' | 'blue', x: number, y: number): GameStat
 function scenario(patch: Partial<ScenarioDefinition> = {}): ScenarioDefinition {
   return {
     id: 'test', name: 'Test', briefing: 'Test scenario', board: createBoard(3, 1), theme: 'temperate',
-    startingGold: 0, initialUnits: [], victoryConditions: [], defeatConditions: [], ...patch,
+    productionRules: 'facility-v2', startingGold: 0, initialUnits: [], victoryConditions: [], defeatConditions: [], ...patch,
   };
 }
 
