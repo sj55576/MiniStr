@@ -1,6 +1,6 @@
-import { isPropertyTerrainKind } from './facilities';
+import { defaultProductionRule, isPropertyTerrainKind, productionRuleSet, type ProductionRule } from './facilities';
 import { createBoard, createGameState } from './state';
-import { unitKindSet, unitStats } from './units';
+import { unitDefinitions, unitKindSet, unitStats } from './units';
 import { terrainKindSet, type Board, type GameResult, type GameState, type PlayerId, type Position, type TerrainKind, type UnitKind } from './types';
 
 export interface InitialUnit { kind: UnitKind; owner: PlayerId; x: number; y: number }
@@ -19,6 +19,8 @@ export interface ScenarioDefinition extends MapDefinition {
   victoryConditions: VictoryCondition[];
   defeatConditions: VictoryCondition[];
   turnLimit?: number;
+  /** Rules explicitly recorded by new scenario JSON; old JSON uses factory-air compatibility. */
+  productionRules: ProductionRule;
 }
 
 /** JSON-compatible source shape used for built-in and future imported scenarios. */
@@ -33,6 +35,8 @@ export interface ScenarioData {
   defeatConditions: readonly VictoryCondition[];
   turnLimit?: number;
   theme?: ScenarioTheme;
+  /** Optional for old custom JSON. Omission intentionally selects legacy factory air production. */
+  productionRules?: ProductionRule;
 }
 
 export interface ScenarioCatalog {
@@ -40,6 +44,8 @@ export interface ScenarioCatalog {
   /** Set only when the requested source was rejected and the supplied fallback was used. */
   error?: string;
 }
+
+export interface ScenarioLoadOptions { defaultProductionRule?: ProductionRule }
 
 export interface ScenarioStorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 export const CUSTOM_SCENARIOS_KEY = 'ministr.scenarios.custom';
@@ -80,7 +86,7 @@ function parseVictoryCondition(value: unknown, width: number, height: number): V
   return undefined;
 }
 
-function parseScenario(value: unknown, ids: Set<string>): GameResult<ScenarioDefinition> {
+function parseScenario(value: unknown, ids: Set<string>, options: ScenarioLoadOptions = {}): GameResult<ScenarioDefinition> {
   if (!isRecord(value)) return { ok: false, error: '各シナリオはオブジェクトである必要があります。' };
   if (typeof value.id !== 'string' || !scenarioIdPattern.test(value.id)) return { ok: false, error: 'シナリオIDは英数字、ハイフン、アンダースコアを1〜64文字で指定してください。' };
   if (ids.has(value.id)) return { ok: false, error: 'シナリオIDが重複しています。' };
@@ -89,6 +95,11 @@ function parseScenario(value: unknown, ids: Set<string>): GameResult<ScenarioDef
   if (!isNonNegativeInteger(startingGold)) return { ok: false, error: `シナリオ「${value.id}」の開始資金が不正です。` };
   const theme = value.theme === undefined ? 'temperate' : value.theme;
   if (typeof theme !== 'string' || !scenarioThemeSet.has(theme)) return { ok: false, error: `シナリオ「${value.id}」のテーマが不正です。` };
+  // Existing custom scenario JSON predates the airport terrain and has no
+  // rule marker. Keep its established factory-air behavior until it is saved
+  // again with an explicit production rule.
+  const productionRules = value.productionRules === undefined ? options.defaultProductionRule ?? 'legacy-factory-air' : value.productionRules;
+  if (typeof productionRules !== 'string' || !productionRuleSet.has(productionRules)) return { ok: false, error: `シナリオ「${value.id}」の生産ルールが不正です。` };
   if (!isRecord(value.board) || !isPositiveInteger(value.board.width) || !isPositiveInteger(value.board.height)
     || value.board.width > 256 || value.board.height > 256 || !Array.isArray(value.board.cells)) return { ok: false, error: `シナリオ「${value.id}」の盤面が不正です。` };
   const width = value.board.width;
@@ -151,18 +162,18 @@ function parseScenario(value: unknown, ids: Set<string>): GameResult<ScenarioDef
     // only after the next round begins, matching the legacy > turnLimit rule.
     : [...defeatConditions.value, { type: 'survive' as const, untilTurn: turnLimit + 1 }];
   ids.add(value.id);
-  return { ok: true, value: { id: value.id, name: value.name, briefing: value.briefing, startingGold, board, initialUnits, victoryConditions: victoryConditions.value, defeatConditions: normalizedDefeatConditions, turnLimit, theme: theme as ScenarioTheme } };
+  return { ok: true, value: { id: value.id, name: value.name, briefing: value.briefing, startingGold, board, initialUnits, victoryConditions: victoryConditions.value, defeatConditions: normalizedDefeatConditions, turnLimit, theme: theme as ScenarioTheme, productionRules: productionRules as ProductionRule } };
 }
 
 /** Converts JSON-compatible scenario data into safe board state. No validation is repeated on lookup. */
-export function loadScenarioDefinitions(source: unknown): GameResult<readonly ScenarioDefinition[]> {
+export function loadScenarioDefinitions(source: unknown, options: ScenarioLoadOptions = {}): GameResult<readonly ScenarioDefinition[]> {
   const cloned = cloneJson(source);
   if (!cloned.ok) return cloned;
   if (!Array.isArray(cloned.value) || cloned.value.length === 0) return { ok: false, error: 'シナリオ定義は空でない配列である必要があります。' };
   const scenarios: ScenarioDefinition[] = [];
   const ids = new Set<string>();
   for (const value of cloned.value) {
-    const scenario = parseScenario(value, ids);
+    const scenario = parseScenario(value, ids, options);
     if (!scenario.ok) return scenario;
     scenarios.push(scenario.value);
   }
@@ -170,14 +181,14 @@ export function loadScenarioDefinitions(source: unknown): GameResult<readonly Sc
 }
 
 /** Returns a safe catalog; invalid source never reaches the game and uses the caller's fallback. */
-export function createScenarioCatalog(source: unknown, fallback: readonly ScenarioDefinition[]): ScenarioCatalog {
-  const loaded = loadScenarioDefinitions(source);
+export function createScenarioCatalog(source: unknown, fallback: readonly ScenarioDefinition[], options: ScenarioLoadOptions = {}): ScenarioCatalog {
+  const loaded = loadScenarioDefinitions(source, options);
   return loaded.ok ? { scenarios: loaded.value } : { scenarios: fallback, error: loaded.error };
 }
 
 const standardVictory = [{ type: 'eliminate' }, { type: 'captureCapital' }] as const;
 
-export const builtInScenarioData = [
+const rawBuiltInScenarioData = [
   {
     id: 'skirmish', name: '緑の国境', theme: 'temperate', startingGold: 6000,
     briefing: '国境地帯を制圧せよ。敵部隊の全滅、または敵司令部の占領で勝利となる。', victoryConditions: standardVictory, defeatConditions: standardVictory,
@@ -226,6 +237,44 @@ export const builtInScenarioData = [
   },
 ] satisfies readonly ScenarioData[];
 
+/**
+ * Built-in maps with starting aircraft receive an owned, unoccupied airport
+ * beside their existing deployment area. Keeping this derived from the unit
+ * data prevents a future air-unit addition from silently producing at a
+ * facility neither side can use.
+ */
+function addBuiltInAirports(scenario: ScenarioData): ScenarioData {
+  const airOwners = new Set(scenario.initialUnits.filter(unit => unitDefinitions[unit.kind].category === 'air').map(unit => unit.owner));
+  if (airOwners.size === 0) return scenario;
+  const unitsByPosition = new Set(scenario.initialUnits.map(unit => `${unit.x},${unit.y}`));
+  const cells = scenario.board.cells.map(cell => [...cell] as [number, number, TerrainKind, PlayerId?]);
+  const cellByPosition = new Map(cells.map(cell => [`${cell[0]},${cell[1]}`, cell] as const));
+  for (const owner of airOwners) {
+    if (cells.some(cell => cell[2] === 'airport' && cell[3] === owner)) continue;
+    const airUnits = scenario.initialUnits.filter(unit => unit.owner === owner && unitDefinitions[unit.kind].category === 'air');
+    const candidate = Array.from({ length: scenario.board.height }, (_, y) => y)
+      .flatMap(y => Array.from({ length: scenario.board.width }, (_, x) => ({ x, y })))
+      .filter(position => !unitsByPosition.has(`${position.x},${position.y}`))
+      .filter(position => {
+        const cell = cellByPosition.get(`${position.x},${position.y}`);
+        return cell === undefined ? scenario.board.fill === undefined || scenario.board.fill === 'plain' : cell[2] === 'plain' && cell[3] === undefined;
+      })
+      .sort((a, b) => {
+        const distance = (position: typeof a) => Math.min(...airUnits.map(unit => Math.abs(position.x - unit.x) + Math.abs(position.y - unit.y)));
+        return distance(a) - distance(b) || a.y - b.y || a.x - b.x;
+      })[0];
+    if (!candidate) continue;
+    const airport: [number, number, TerrainKind, PlayerId] = [candidate.x, candidate.y, 'airport', owner];
+    const existingIndex = cells.findIndex(cell => cell[0] === candidate.x && cell[1] === candidate.y);
+    if (existingIndex === -1) cells.push(airport);
+    else cells[existingIndex] = airport;
+    cellByPosition.set(`${candidate.x},${candidate.y}`, airport);
+  }
+  return { ...scenario, board: { ...scenario.board, cells } };
+}
+
+export const builtInScenarioData = rawBuiltInScenarioData.map(addBuiltInAirports);
+
 // A compact, independently valid fallback keeps the app playable even if a
 // future edit corrupts the larger built-in data set. Keep this separate from
 // `builtInScenarioData`: it must still work when that entire catalog is bad.
@@ -245,12 +294,12 @@ const emergencyScenarioData = [{
 
 // Its validity is a source invariant, so fail fast only for this
 // developer-owned emergency definition.
-const fallbackLoad = loadScenarioDefinitions(emergencyScenarioData);
+const fallbackLoad = loadScenarioDefinitions(emergencyScenarioData, { defaultProductionRule });
 if (!fallbackLoad.ok) throw new Error(`Fallback scenario definition is invalid: ${fallbackLoad.error}`);
 const fallbackScenarios = fallbackLoad.value;
 /** Builds a safe built-in catalog and is exported so fallback behavior is regression-tested. */
 export function createBuiltInScenarioCatalog(source: unknown): ScenarioCatalog {
-  return createScenarioCatalog(source, fallbackScenarios);
+  return createScenarioCatalog(source, fallbackScenarios, { defaultProductionRule });
 }
 const builtInCatalog = createBuiltInScenarioCatalog(builtInScenarioData);
 
@@ -289,7 +338,7 @@ export function scenarioDefinitionToData(scenario: ScenarioDefinition): Scenario
   }
   return { id: scenario.id, name: scenario.name, briefing: scenario.briefing, startingGold: scenario.startingGold,
     board: { width: scenario.board.width, height: scenario.board.height, cells }, initialUnits: scenario.initialUnits.map(unit => ({ ...unit })),
-    victoryConditions: scenario.victoryConditions.map(condition => structuredClone(condition)), defeatConditions: scenario.defeatConditions.map(condition => structuredClone(condition)), turnLimit: scenario.turnLimit, theme: scenario.theme };
+    victoryConditions: scenario.victoryConditions.map(condition => structuredClone(condition)), defeatConditions: scenario.defeatConditions.map(condition => structuredClone(condition)), turnLimit: scenario.turnLimit, theme: scenario.theme, productionRules: scenario.productionRules };
 }
 
 function replaceCustomScenarios(scenarios: readonly ScenarioDefinition[]): void {

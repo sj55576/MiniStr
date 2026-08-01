@@ -6,7 +6,7 @@ import type { PlayerId, TerrainKind, UnitKind } from '../game';
  */
 export const terrainNames: Record<TerrainKind, string> = {
   plain: '平原', forest: '森林', mountain: '山岳', road: '道路', sea: '海',
-  city: '都市', factory: '工場', port: '港湾', capital: '司令部',
+  city: '都市', factory: '工場', airport: '空港', port: '港湾', capital: '司令部',
 };
 
 export const unitNames: Record<UnitKind, string> = {

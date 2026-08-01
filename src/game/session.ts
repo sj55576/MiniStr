@@ -1,4 +1,4 @@
-import { attackUnit, captureProperty, disembarkUnit, embarkUnit, endTurn, moveUnit, produceUnit, waitUnit } from './commands';
+import { attackUnit, captureProperty, disembarkUnit, embarkUnit, endTurn, mergeUnits, moveUnit, produceUnit, waitUnit } from './commands';
 import { createScenarioInitialState, scenarioById } from './maps';
 import { terrainKindSet, type GameResult, type GameState, type Position, type UnitKind } from './types';
 import { isEmbarkableUnit, transportCapacity, unitKindSet } from './units';
@@ -16,6 +16,7 @@ export type GameCommand =
   | { type: 'move'; unitId: string; destination: Position }
   | { type: 'wait'; unitId: string }
   | { type: 'attack'; unitId: string; targetId: string }
+  | { type: 'merge'; unitId: string; targetId: string }
   | { type: 'capture'; unitId: string }
   | { type: 'produce'; factory: Position; kind: UnitKind }
   | { type: 'embark'; unitId: string; transportId: string }
@@ -60,6 +61,7 @@ export function applyGameCommand(state: GameState, command: GameCommand): GameRe
     case 'move': return moveUnit(state, command.unitId, command.destination);
     case 'wait': return waitUnit(state, command.unitId);
     case 'attack': return attackUnit(state, command.unitId, command.targetId);
+    case 'merge': return mergeUnits(state, command.unitId, command.targetId);
     case 'capture': return captureProperty(state, command.unitId);
     case 'produce': return produceUnit(state, command.factory, command.kind);
     case 'embark': return embarkUnit(state, command.unitId, command.transportId);
@@ -129,6 +131,7 @@ export function isGameCommand(value: unknown): value is GameCommand {
   if (value.type === 'move') return typeof value.unitId === 'string' && isPosition(value.destination);
   if (value.type === 'wait') return typeof value.unitId === 'string';
   if (value.type === 'attack') return typeof value.unitId === 'string' && typeof value.targetId === 'string';
+  if (value.type === 'merge') return typeof value.unitId === 'string' && typeof value.targetId === 'string';
   if (value.type === 'capture') return typeof value.unitId === 'string';
   if (value.type === 'embark') return typeof value.unitId === 'string' && typeof value.transportId === 'string';
   if (value.type === 'disembark') return typeof value.transportId === 'string' && isPosition(value.destination);

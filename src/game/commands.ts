@@ -1,6 +1,6 @@
 import { movementCost, positionKey, samePosition, terrainAt } from './terrain';
 import { playerOwnedProperties, unitAt } from './state';
-import { isEmbarkableUnit, transportCapacity, unitStats } from './units';
+import { isEmbarkableUnit, isMergeableUnit, transportCapacity, unitStats } from './units';
 import { applyDamageVariance, forecastCombat } from './combat';
 import { nextRandom } from './rng';
 import { canProduceUnit, isPropertyTerrainKind } from './facilities';
@@ -194,7 +194,11 @@ export function collectIncome(state: GameState): GameState {
 export function produceUnit(state: GameState, facility: Position, kind: UnitKind): GameResult {
   if (state.winner) return fail('Game has finished');
   const terrain = terrainAt(state.board, facility);
-  if (!terrain || terrain.owner !== state.activePlayer || !canProduceUnit(terrain.kind, kind))
+  // Generic test/replay states without a scenario ID predate the airport
+  // field, so retain their historical factory-air behavior. Built-in and
+  // newly saved scenarios always carry an explicit facility rule.
+  const productionRule = scenarioById(state.scenarioId)?.productionRules ?? 'legacy-factory-air';
+  if (!terrain || terrain.owner !== state.activePlayer || !canProduceUnit(terrain.kind, kind, productionRule))
     return fail('An owned compatible production facility is required');
   if (unitAt(state, facility)) return fail('Production facility is occupied');
   const stats = unitStats[kind];
@@ -262,6 +266,40 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
 function adjacent(first: Position, second: Position): boolean {
   return Math.abs(first.x - second.x) + Math.abs(first.y - second.y) === 1;
 }
+
+/** Combines two adjacent allied units while preserving the stronger unit's identity. */
+export function mergeUnits(state: GameState, unitId: string, targetId: string): GameResult {
+  if (state.winner) return fail('Game has finished');
+  const unit = state.units.find(candidate => candidate.id === unitId);
+  const target = state.units.find(candidate => candidate.id === targetId);
+  if (!unit || !target) return fail('Unit not found');
+  if (unit.id === target.id) return fail('A unit cannot merge with itself');
+  if (!isDeployedUnit(unit) || !isDeployedUnit(target)) return fail('Embarked units cannot merge');
+  if (unit.owner !== state.activePlayer) return fail('Unit belongs to the other player');
+  if (target.owner !== unit.owner) return fail('Units must belong to the same player');
+  if (unit.hasActed || target.hasActed) return fail('Unit has already acted');
+  if (!adjacent(unit.position, target.position)) return fail('Units must be adjacent');
+  if (unit.kind !== target.kind) return fail('Units must be the same kind');
+  if (!isMergeableUnit(unit.kind)) return fail('This unit type cannot merge');
+
+  // Equal HP is intentionally resolved in command argument order. This keeps
+  // the result stable for replay without inventing a second notion of strength.
+  const survivor = unit.hp >= target.hp ? unit : target;
+  const removed = survivor.id === unit.id ? target : unit;
+  const stats = unitStats[survivor.kind];
+  const hp = Math.min(100, unit.hp + target.hp);
+  const ammo = Math.min(stats.ammo, (unit.ammo ?? stats.ammo) + (target.ammo ?? stats.ammo));
+  const fuel = Math.min(stats.fuel, (unit.fuel ?? stats.fuel) + (target.fuel ?? stats.fuel));
+  const units = state.units
+    .filter(candidate => candidate.id !== removed.id)
+    .map(candidate => candidate.id === survivor.id
+      ? { ...candidate, hp, ammo, fuel, hasMoved: true, hasActed: true }
+      : candidate);
+  return succeed({ ...state, units });
+}
+
+/** Singular alias matching the naming of the other unit action commands. */
+export const mergeUnit = mergeUnits;
 
 function canDeployEmbarkableUnit(state: GameState, destination: Position, kind: UnitKind): boolean {
   const terrain = terrainAt(state.board, destination);

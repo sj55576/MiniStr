@@ -2,7 +2,7 @@ import type { unitDefinitions } from './units';
 
 export type PlayerId = 'red' | 'blue';
 export type UnitKind = keyof typeof unitDefinitions;
-export const terrainKinds = ['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'port', 'capital'] as const;
+export const terrainKinds = ['plain', 'forest', 'road', 'mountain', 'sea', 'city', 'factory', 'airport', 'port', 'capital'] as const;
 export type TerrainKind = (typeof terrainKinds)[number];
 export const terrainKindSet: ReadonlySet<string> = new Set(terrainKinds);
 
