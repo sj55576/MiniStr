@@ -251,6 +251,10 @@ npm run preview
 
 バグ報告、機能提案、PR はお気軽にどうぞ。
 
+## 素材
+
+`public/assets/` の画像（司令官ポートレート・戦場背景）は GPT Image 2 による生成物です。
+
 ## ライセンス
 
 MIT License
