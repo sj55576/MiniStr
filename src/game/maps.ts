@@ -1,6 +1,6 @@
 import { defaultProductionRule, isPropertyTerrainKind, productionRuleSet, type ProductionRule } from './facilities';
-import { createBoard, createGameState } from './state';
-import { unitDefinitions, unitKindSet, unitStats } from './units';
+import { createBoard, createGameState, playerOwnedProperties } from './state';
+import { unitKindSet, unitStats } from './units';
 import { terrainKindSet, type Board, type GameResult, type GameState, type PlayerId, type Position, type TerrainKind, type UnitKind } from './types';
 
 export interface InitialUnit { kind: UnitKind; owner: PlayerId; x: number; y: number }
@@ -192,88 +192,53 @@ const rawBuiltInScenarioData = [
   {
     id: 'skirmish', name: '緑の国境', theme: 'temperate', startingGold: 6000,
     briefing: '国境地帯を制圧せよ。敵部隊の全滅、または敵司令部の占領で勝利となる。', victoryConditions: standardVictory, defeatConditions: standardVictory,
-    board: { width: 10, height: 8, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [9, 7, 'capital', 'blue'], [8, 7, 'factory', 'blue'], [4, 3, 'city'], [5, 4, 'city'], [4, 4, 'forest'], [5, 3, 'mountain'], [2, 2, 'forest'], [7, 5, 'forest'], [0, 2, 'factory', 'red'], [2, 0, 'city', 'red'], [9, 5, 'factory', 'blue'], [7, 7, 'city', 'blue'], [7, 1, 'factory'], [2, 6, 'factory']] },
+    board: { width: 10, height: 8, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [3, 0, 'airport', 'red'], [9, 7, 'capital', 'blue'], [8, 7, 'factory', 'blue'], [6, 7, 'airport', 'blue'], [4, 3, 'city'], [5, 4, 'city'], [4, 4, 'mountain'], [5, 3, 'mountain'], [2, 2, 'forest'], [7, 5, 'forest'], [0, 2, 'factory', 'red'], [2, 0, 'city', 'red'], [9, 5, 'factory', 'blue'], [7, 7, 'city', 'blue'], [7, 1, 'factory'], [2, 6, 'factory']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 1 }, { kind: 'tank', owner: 'red', x: 1, y: 1 }, { kind: 'recon', owner: 'red', x: 2, y: 1 }, { kind: 'infantry', owner: 'blue', x: 9, y: 6 }, { kind: 'tank', owner: 'blue', x: 8, y: 6 }, { kind: 'recon', owner: 'blue', x: 7, y: 6 }],
   },
   {
     id: 'islands', name: '群島補給線', theme: 'coastal', startingGold: 9000, briefing: '群島の補給線を確保し、敵の戦力か司令部を無力化せよ。', victoryConditions: standardVictory, defeatConditions: standardVictory,
-    board: { width: 12, height: 8, fill: 'sea', cells: [[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'factory', 'red'], [0, 1, 'capital', 'red'], [1, 1, 'factory', 'red'], [2, 1, 'port', 'red'], [0, 2, 'plain'], [1, 2, 'plain'], [2, 2, 'plain'], [9, 5, 'plain'], [10, 5, 'plain'], [11, 5, 'plain'], [9, 6, 'port', 'blue'], [10, 6, 'factory', 'blue'], [11, 6, 'capital', 'blue'], [9, 7, 'factory', 'blue'], [10, 7, 'plain'], [11, 7, 'plain'], [4, 3, 'factory'], [5, 3, 'city'], [6, 4, 'city'], [7, 4, 'factory'], [4, 2, 'plain'], [5, 2, 'port'], [7, 5, 'plain'], [6, 5, 'port']] },
+    board: { width: 12, height: 8, fill: 'sea', cells: [[0, 0, 'airport', 'red'], [1, 0, 'plain'], [2, 0, 'factory', 'red'], [0, 1, 'capital', 'red'], [1, 1, 'factory', 'red'], [2, 1, 'port', 'red'], [0, 2, 'plain'], [1, 2, 'plain'], [2, 2, 'plain'], [9, 5, 'plain'], [10, 5, 'plain'], [11, 5, 'plain'], [9, 6, 'port', 'blue'], [10, 6, 'factory', 'blue'], [11, 6, 'capital', 'blue'], [9, 7, 'factory', 'blue'], [10, 7, 'plain'], [11, 7, 'airport', 'blue'], [4, 3, 'factory'], [5, 3, 'city'], [6, 4, 'city'], [7, 4, 'factory'], [4, 2, 'plain'], [5, 2, 'port'], [7, 5, 'plain'], [6, 5, 'port']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 2 }, { kind: 'fighter', owner: 'red', x: 1, y: 0 }, { kind: 'destroyer', owner: 'red', x: 3, y: 2 }, { kind: 'infantry', owner: 'blue', x: 11, y: 5 }, { kind: 'fighter', owner: 'blue', x: 10, y: 7 }, { kind: 'destroyer', owner: 'blue', x: 8, y: 5 }],
   },
   {
     id: 'landing', name: '海峡上陸作戦', theme: 'coastal', startingGold: 0, turnLimit: 18, briefing: '海峡の向こうにある敵司令部を占領せよ。歩兵は輸送艦に乗船してから航行し、敵島の海岸へ上陸する必要がある。敵司令部を占領すれば勝利、自軍司令部を占領されれば敗北となる。', victoryConditions: [{ type: 'captureCapital' }], defeatConditions: [{ type: 'captureCapital' }],
-    board: { width: 10, height: 6, fill: 'sea', cells: [[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [0, 1, 'capital', 'red'], [1, 1, 'plain'], [2, 1, 'plain'], [0, 2, 'plain'], [1, 2, 'plain'], [2, 2, 'plain'], [0, 3, 'plain'], [1, 3, 'port', 'red'], [2, 3, 'plain'], [0, 4, 'factory', 'red'], [1, 4, 'plain'], [2, 4, 'plain'], [0, 5, 'plain'], [1, 5, 'plain'], [2, 5, 'plain'], [7, 0, 'plain'], [8, 0, 'plain'], [9, 0, 'plain'], [7, 1, 'plain'], [8, 1, 'plain'], [9, 1, 'factory', 'blue'], [7, 2, 'plain'], [8, 2, 'port', 'blue'], [9, 2, 'plain'], [7, 3, 'plain'], [8, 3, 'plain'], [9, 3, 'plain'], [7, 4, 'plain'], [8, 4, 'plain'], [9, 4, 'capital', 'blue'], [7, 5, 'plain'], [8, 5, 'plain'], [9, 5, 'plain'], [4, 2, 'port'], [5, 3, 'port']] },
-    initialUnits: [{ kind: 'infantry', owner: 'red', x: 2, y: 2 }, { kind: 'landingShip', owner: 'red', x: 3, y: 2 }, { kind: 'infantry', owner: 'blue', x: 7, y: 4 }, { kind: 'landingShip', owner: 'blue', x: 6, y: 4 }],
+    board: { width: 10, height: 6, fill: 'sea', cells: [[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [0, 1, 'capital', 'red'], [1, 1, 'plain'], [2, 1, 'plain'], [0, 2, 'plain'], [1, 2, 'plain'], [2, 2, 'plain'], [0, 3, 'plain'], [1, 3, 'port', 'red'], [2, 3, 'airport', 'red'], [0, 4, 'factory', 'red'], [1, 4, 'plain'], [2, 4, 'plain'], [0, 5, 'plain'], [1, 5, 'plain'], [2, 5, 'plain'], [7, 0, 'plain'], [8, 0, 'plain'], [9, 0, 'plain'], [7, 1, 'plain'], [8, 1, 'plain'], [9, 1, 'factory', 'blue'], [7, 2, 'airport', 'blue'], [8, 2, 'port', 'blue'], [9, 2, 'plain'], [7, 3, 'plain'], [8, 3, 'plain'], [9, 3, 'plain'], [7, 4, 'plain'], [8, 4, 'plain'], [9, 4, 'capital', 'blue'], [7, 5, 'plain'], [8, 5, 'plain'], [9, 5, 'plain'], [4, 2, 'port'], [5, 3, 'port']] },
+    initialUnits: [{ kind: 'infantry', owner: 'red', x: 2, y: 2 }, { kind: 'landingShip', owner: 'red', x: 3, y: 2 }, { kind: 'infantry', owner: 'blue', x: 7, y: 3 }, { kind: 'landingShip', owner: 'blue', x: 6, y: 3 }],
   },
   {
     id: 'canyon', name: '峡谷の関門', theme: 'desert', startingGold: 11000, briefing: '峡谷中央の関門を突破し、敵軍を撃破せよ。', victoryConditions: standardVictory, defeatConditions: standardVictory,
-    board: { width: 12, height: 10, cells: [[0, 1, 'capital', 'red'], [1, 1, 'factory', 'red'], [2, 2, 'city', 'red'], [11, 8, 'capital', 'blue'], [10, 8, 'factory', 'blue'], [9, 7, 'city', 'blue'], [5, 0, 'mountain'], [5, 1, 'mountain'], [5, 2, 'mountain'], [5, 3, 'mountain'], [5, 4, 'mountain'], [5, 6, 'mountain'], [5, 7, 'mountain'], [5, 8, 'mountain'], [5, 9, 'mountain'], [5, 5, 'road'], [6, 5, 'city'], [4, 5, 'road'], [7, 5, 'road'], [8, 5, 'road'], [3, 4, 'forest'], [7, 6, 'forest'], [0, 3, 'factory', 'red'], [1, 0, 'city', 'red'], [11, 6, 'factory', 'blue'], [10, 9, 'city', 'blue'], [3, 7, 'factory'], [8, 2, 'factory'], [2, 8, 'city'], [9, 1, 'city']] },
+    board: { width: 12, height: 10, cells: [[0, 1, 'capital', 'red'], [1, 1, 'factory', 'red'], [2, 0, 'airport', 'red'], [2, 2, 'city', 'red'], [11, 8, 'capital', 'blue'], [10, 8, 'factory', 'blue'], [9, 7, 'city', 'blue'], [9, 9, 'airport', 'blue'], [5, 0, 'mountain'], [5, 1, 'mountain'], [5, 2, 'mountain'], [5, 3, 'mountain'], [5, 4, 'mountain'], [5, 6, 'mountain'], [5, 7, 'mountain'], [5, 8, 'mountain'], [5, 9, 'mountain'], [5, 5, 'road'], [6, 5, 'city'], [4, 5, 'road'], [7, 5, 'road'], [8, 5, 'road'], [3, 4, 'forest'], [7, 6, 'forest'], [0, 3, 'factory', 'red'], [1, 0, 'city', 'red'], [11, 6, 'factory', 'blue'], [10, 9, 'city', 'blue'], [3, 7, 'factory'], [8, 2, 'factory'], [2, 8, 'city'], [9, 1, 'city']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 2 }, { kind: 'tank', owner: 'red', x: 1, y: 2 }, { kind: 'artillery', owner: 'red', x: 2, y: 3 }, { kind: 'rocket', owner: 'red', x: 1, y: 3 }, { kind: 'bomber', owner: 'red', x: 2, y: 1 }, { kind: 'infantry', owner: 'blue', x: 11, y: 7 }, { kind: 'tank', owner: 'blue', x: 10, y: 7 }, { kind: 'artillery', owner: 'blue', x: 9, y: 6 }, { kind: 'rocket', owner: 'blue', x: 10, y: 6 }, { kind: 'bomber', owner: 'blue', x: 9, y: 8 }],
   },
   {
     id: 'siege', name: '首都包囲', theme: 'urban', startingGold: 14000, briefing: '中央都市を足掛かりに首都包囲網を完成させ、敵を降伏させよ。', victoryConditions: standardVictory, defeatConditions: standardVictory,
-    board: { width: 14, height: 10, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [2, 1, 'city', 'red'], [13, 9, 'capital', 'blue'], [12, 9, 'factory', 'blue'], [11, 8, 'city', 'blue'], [6, 4, 'capital'], [6, 5, 'city'], [7, 4, 'city'], [7, 5, 'factory'], [3, 2, 'forest'], [4, 2, 'forest'], [9, 7, 'forest'], [10, 7, 'forest'], [5, 3, 'road'], [6, 3, 'road'], [7, 3, 'road'], [8, 3, 'road'], [5, 6, 'road'], [6, 6, 'road'], [7, 6, 'road'], [8, 6, 'road'], [0, 2, 'factory', 'red'], [3, 1, 'city', 'red'], [13, 7, 'factory', 'blue'], [10, 8, 'city', 'blue'], [4, 7, 'factory'], [9, 2, 'factory']] },
+    board: { width: 14, height: 10, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [4, 0, 'airport', 'red'], [2, 1, 'city', 'red'], [13, 9, 'capital', 'blue'], [12, 9, 'factory', 'blue'], [9, 9, 'airport', 'blue'], [11, 8, 'city', 'blue'], [6, 4, 'capital'], [6, 5, 'city'], [7, 4, 'city'], [7, 5, 'factory'], [3, 2, 'forest'], [4, 2, 'forest'], [9, 7, 'forest'], [10, 7, 'forest'], [5, 3, 'road'], [6, 3, 'road'], [7, 3, 'road'], [8, 3, 'road'], [5, 6, 'road'], [6, 6, 'road'], [7, 6, 'road'], [8, 6, 'road'], [0, 2, 'factory', 'red'], [3, 1, 'city', 'red'], [13, 7, 'factory', 'blue'], [10, 8, 'city', 'blue'], [4, 7, 'factory'], [9, 2, 'factory']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 1 }, { kind: 'recon', owner: 'red', x: 1, y: 1 }, { kind: 'tank', owner: 'red', x: 2, y: 0 }, { kind: 'rocket', owner: 'red', x: 2, y: 2 }, { kind: 'fighter', owner: 'red', x: 3, y: 0 }, { kind: 'infantry', owner: 'blue', x: 13, y: 8 }, { kind: 'recon', owner: 'blue', x: 12, y: 8 }, { kind: 'tank', owner: 'blue', x: 11, y: 9 }, { kind: 'rocket', owner: 'blue', x: 11, y: 7 }, { kind: 'fighter', owner: 'blue', x: 10, y: 9 }],
   },
   {
     id: 'river', name: '渡河作戦', theme: 'temperate', startingGold: 10000, briefing: '中央を流れる大河が戦場を二分している。橋頭堡を確保し、対岸の敵を撃破せよ。', victoryConditions: standardVictory, defeatConditions: standardVictory,
-    board: { width: 13, height: 9, cells: [[6, 0, 'sea'], [6, 1, 'sea'], [6, 3, 'sea'], [6, 4, 'sea'], [6, 5, 'sea'], [6, 7, 'sea'], [6, 8, 'sea'], [6, 2, 'road'], [6, 6, 'road'], [0, 4, 'capital', 'red'], [1, 3, 'factory', 'red'], [1, 5, 'factory', 'red'], [2, 2, 'city', 'red'], [2, 6, 'city', 'red'], [5, 4, 'port', 'red'], [12, 4, 'capital', 'blue'], [11, 5, 'factory', 'blue'], [11, 3, 'factory', 'blue'], [10, 6, 'city', 'blue'], [10, 2, 'city', 'blue'], [7, 4, 'port', 'blue'], [5, 2, 'city'], [7, 6, 'city'], [4, 0, 'factory'], [8, 8, 'factory'], [4, 8, 'city'], [8, 0, 'city'], [3, 1, 'forest'], [9, 7, 'forest'], [3, 7, 'mountain'], [9, 1, 'mountain'], [4, 2, 'road'], [8, 6, 'road'], [4, 6, 'road'], [8, 2, 'road'], [5, 6, 'forest'], [7, 2, 'forest']] },
+    board: { width: 13, height: 9, cells: [[6, 0, 'sea'], [6, 1, 'sea'], [6, 3, 'sea'], [6, 4, 'sea'], [6, 5, 'sea'], [6, 7, 'sea'], [6, 8, 'sea'], [6, 2, 'road'], [6, 6, 'road'], [0, 3, 'airport', 'red'], [0, 4, 'capital', 'red'], [1, 3, 'factory', 'red'], [1, 5, 'factory', 'red'], [2, 2, 'city', 'red'], [2, 6, 'city', 'red'], [5, 4, 'port', 'red'], [12, 5, 'airport', 'blue'], [12, 4, 'capital', 'blue'], [11, 5, 'factory', 'blue'], [11, 3, 'factory', 'blue'], [10, 6, 'city', 'blue'], [10, 2, 'city', 'blue'], [7, 4, 'port', 'blue'], [5, 2, 'city'], [7, 6, 'city'], [4, 0, 'factory'], [8, 8, 'factory'], [4, 8, 'city'], [8, 0, 'city'], [3, 1, 'forest'], [9, 7, 'forest'], [3, 7, 'mountain'], [9, 1, 'mountain'], [4, 2, 'road'], [8, 6, 'road'], [4, 6, 'road'], [8, 2, 'road'], [5, 6, 'forest'], [7, 2, 'forest']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 1, y: 4 }, { kind: 'tank', owner: 'red', x: 2, y: 4 }, { kind: 'artillery', owner: 'red', x: 2, y: 3 }, { kind: 'recon', owner: 'red', x: 2, y: 5 }, { kind: 'antiAir', owner: 'red', x: 3, y: 4 }, { kind: 'infantry', owner: 'blue', x: 11, y: 4 }, { kind: 'tank', owner: 'blue', x: 10, y: 4 }, { kind: 'artillery', owner: 'blue', x: 10, y: 5 }, { kind: 'recon', owner: 'blue', x: 10, y: 3 }, { kind: 'antiAir', owner: 'blue', x: 9, y: 4 }],
   },
   {
     id: 'industrial', name: '工業地帯の争奪', theme: 'urban', startingGold: 8000, turnLimit: 30, briefing: '工場群が密集する工業地帯だ。拠点の占領と敵部隊の撃破でスコアを稼ぎ、先に規定点へ到達せよ。', victoryConditions: [{ type: 'score', target: 12 }, { type: 'captureCapital' }], defeatConditions: [{ type: 'score', target: 12 }, { type: 'captureCapital' }],
-    board: { width: 14, height: 10, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [0, 2, 'factory', 'red'], [2, 1, 'city', 'red'], [13, 9, 'capital', 'blue'], [12, 9, 'factory', 'blue'], [13, 7, 'factory', 'blue'], [11, 8, 'city', 'blue'], [4, 2, 'factory'], [9, 7, 'factory'], [4, 7, 'factory'], [9, 2, 'factory'], [6, 4, 'factory'], [7, 5, 'factory'], [3, 4, 'city'], [10, 5, 'city'], [6, 1, 'city'], [7, 8, 'city'], [6, 7, 'city'], [7, 2, 'city'], [5, 4, 'road'], [8, 5, 'road'], [5, 5, 'road'], [8, 4, 'road'], [2, 4, 'road'], [11, 5, 'road'], [2, 5, 'road'], [11, 4, 'road'], [3, 8, 'forest'], [10, 1, 'forest'], [5, 2, 'mountain'], [8, 7, 'mountain']] },
+    board: { width: 14, height: 10, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [3, 0, 'airport', 'red'], [0, 2, 'factory', 'red'], [2, 1, 'city', 'red'], [13, 9, 'capital', 'blue'], [12, 9, 'factory', 'blue'], [10, 9, 'airport', 'blue'], [13, 7, 'factory', 'blue'], [11, 8, 'city', 'blue'], [4, 2, 'factory'], [9, 7, 'factory'], [4, 7, 'factory'], [9, 2, 'factory'], [6, 4, 'factory'], [7, 5, 'factory'], [3, 4, 'city'], [10, 5, 'city'], [6, 1, 'city'], [7, 8, 'city'], [6, 7, 'city'], [7, 2, 'city'], [5, 4, 'road'], [8, 5, 'road'], [5, 5, 'road'], [8, 4, 'road'], [2, 4, 'road'], [11, 5, 'road'], [2, 5, 'road'], [11, 4, 'road'], [3, 8, 'forest'], [10, 1, 'forest'], [5, 2, 'mountain'], [8, 7, 'mountain']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 1 }, { kind: 'infantry', owner: 'red', x: 1, y: 1 }, { kind: 'tank', owner: 'red', x: 2, y: 0 }, { kind: 'recon', owner: 'red', x: 3, y: 1 }, { kind: 'artillery', owner: 'red', x: 1, y: 2 }, { kind: 'antiAir', owner: 'red', x: 2, y: 2 }, { kind: 'infantry', owner: 'blue', x: 13, y: 8 }, { kind: 'infantry', owner: 'blue', x: 12, y: 8 }, { kind: 'tank', owner: 'blue', x: 11, y: 9 }, { kind: 'recon', owner: 'blue', x: 10, y: 8 }, { kind: 'artillery', owner: 'blue', x: 12, y: 7 }, { kind: 'antiAir', owner: 'blue', x: 11, y: 7 }],
   },
   {
     id: 'tundra', name: '凍土の防衛線', theme: 'snow', startingGold: 12000, briefing: '凍てついた山稜が唯一の盾だ。増援を送り込む敵の猛攻を、規定ターンまで凌ぎ切れ。', victoryConditions: [{ type: 'survive', untilTurn: 15 }, { type: 'eliminate' }], defeatConditions: [{ type: 'captureCapital' }, { type: 'eliminate' }],
-    board: { width: 12, height: 9, cells: [[4, 0, 'mountain'], [4, 1, 'mountain'], [4, 2, 'mountain'], [4, 3, 'mountain'], [4, 5, 'mountain'], [4, 6, 'mountain'], [4, 8, 'mountain'], [4, 4, 'road'], [4, 7, 'forest'], [1, 4, 'capital', 'red'], [0, 3, 'factory', 'red'], [0, 5, 'factory', 'red'], [1, 2, 'city', 'red'], [1, 6, 'city', 'red'], [10, 4, 'capital', 'blue'], [11, 3, 'factory', 'blue'], [11, 5, 'factory', 'blue'], [10, 1, 'city', 'blue'], [10, 7, 'city', 'blue'], [8, 4, 'factory', 'blue'], [6, 2, 'city'], [6, 6, 'city'], [6, 4, 'factory'], [2, 0, 'city'], [2, 8, 'city'], [3, 1, 'forest'], [3, 7, 'forest'], [7, 2, 'forest'], [7, 6, 'forest']] },
+    board: { width: 12, height: 9, cells: [[4, 0, 'mountain'], [4, 1, 'mountain'], [4, 2, 'mountain'], [4, 3, 'mountain'], [4, 5, 'mountain'], [4, 6, 'mountain'], [4, 8, 'mountain'], [4, 4, 'road'], [4, 7, 'forest'], [1, 4, 'capital', 'red'], [0, 3, 'factory', 'red'], [0, 5, 'factory', 'red'], [2, 1, 'airport', 'red'], [1, 2, 'city', 'red'], [1, 6, 'city', 'red'], [10, 4, 'capital', 'blue'], [11, 3, 'factory', 'blue'], [11, 5, 'factory', 'blue'], [9, 1, 'airport', 'blue'], [10, 1, 'city', 'blue'], [10, 7, 'city', 'blue'], [8, 4, 'factory', 'blue'], [6, 2, 'city'], [6, 6, 'city'], [6, 4, 'factory'], [2, 0, 'city'], [2, 8, 'city'], [3, 1, 'forest'], [3, 7, 'forest'], [7, 2, 'forest'], [7, 6, 'forest']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 2, y: 3 }, { kind: 'infantry', owner: 'red', x: 2, y: 5 }, { kind: 'antiAir', owner: 'red', x: 2, y: 4 }, { kind: 'artillery', owner: 'red', x: 1, y: 3 }, { kind: 'rocket', owner: 'red', x: 1, y: 5 }, { kind: 'tank', owner: 'red', x: 3, y: 4 }, { kind: 'infantry', owner: 'blue', x: 9, y: 3 }, { kind: 'infantry', owner: 'blue', x: 9, y: 5 }, { kind: 'tank', owner: 'blue', x: 9, y: 4 }, { kind: 'tank', owner: 'blue', x: 8, y: 3 }, { kind: 'recon', owner: 'blue', x: 8, y: 5 }, { kind: 'artillery', owner: 'blue', x: 10, y: 3 }, { kind: 'bomber', owner: 'blue', x: 10, y: 5 }, { kind: 'fighter', owner: 'blue', x: 9, y: 2 }],
   },
   {
     id: 'outpost', name: '前哨基地強襲', theme: 'temperate', startingGold: 5000, turnLimit: 20, briefing: '小規模な前哨基地をめぐる短期決戦だ。中央の工場を押さえて数的優位を築け。', victoryConditions: standardVictory, defeatConditions: standardVictory,
-    board: { width: 8, height: 6, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [0, 2, 'city', 'red'], [7, 5, 'capital', 'blue'], [6, 5, 'factory', 'blue'], [7, 3, 'city', 'blue'], [3, 2, 'factory'], [4, 3, 'factory'], [3, 4, 'city'], [4, 1, 'city'], [2, 3, 'forest'], [5, 2, 'forest'], [2, 1, 'mountain'], [5, 4, 'mountain'], [3, 0, 'road'], [4, 5, 'road']] },
+    board: { width: 8, height: 6, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [0, 2, 'city', 'red'], [0, 3, 'airport', 'red'], [7, 5, 'capital', 'blue'], [6, 5, 'factory', 'blue'], [7, 3, 'city', 'blue'], [7, 2, 'airport', 'blue'], [3, 2, 'factory'], [4, 3, 'factory'], [3, 4, 'city'], [4, 1, 'city'], [2, 3, 'forest'], [5, 2, 'forest'], [2, 1, 'mountain'], [5, 4, 'mountain'], [3, 0, 'road'], [4, 5, 'road']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 1 }, { kind: 'tank', owner: 'red', x: 1, y: 1 }, { kind: 'recon', owner: 'red', x: 2, y: 0 }, { kind: 'infantry', owner: 'blue', x: 7, y: 4 }, { kind: 'tank', owner: 'blue', x: 6, y: 4 }, { kind: 'recon', owner: 'blue', x: 5, y: 5 }],
   },
 ] satisfies readonly ScenarioData[];
 
-/**
- * Built-in maps with starting aircraft receive an owned, unoccupied airport
- * beside their existing deployment area. Keeping this derived from the unit
- * data prevents a future air-unit addition from silently producing at a
- * facility neither side can use.
- */
-function addBuiltInAirports(scenario: ScenarioData): ScenarioData {
-  const airOwners = new Set(scenario.initialUnits.filter(unit => unitDefinitions[unit.kind].category === 'air').map(unit => unit.owner));
-  if (airOwners.size === 0) return scenario;
-  const unitsByPosition = new Set(scenario.initialUnits.map(unit => `${unit.x},${unit.y}`));
-  const cells = scenario.board.cells.map(cell => [...cell] as [number, number, TerrainKind, PlayerId?]);
-  const cellByPosition = new Map(cells.map(cell => [`${cell[0]},${cell[1]}`, cell] as const));
-  for (const owner of airOwners) {
-    if (cells.some(cell => cell[2] === 'airport' && cell[3] === owner)) continue;
-    const airUnits = scenario.initialUnits.filter(unit => unit.owner === owner && unitDefinitions[unit.kind].category === 'air');
-    const candidate = Array.from({ length: scenario.board.height }, (_, y) => y)
-      .flatMap(y => Array.from({ length: scenario.board.width }, (_, x) => ({ x, y })))
-      .filter(position => !unitsByPosition.has(`${position.x},${position.y}`))
-      .filter(position => {
-        const cell = cellByPosition.get(`${position.x},${position.y}`);
-        return cell === undefined ? scenario.board.fill === undefined || scenario.board.fill === 'plain' : cell[2] === 'plain' && cell[3] === undefined;
-      })
-      .sort((a, b) => {
-        const distance = (position: typeof a) => Math.min(...airUnits.map(unit => Math.abs(position.x - unit.x) + Math.abs(position.y - unit.y)));
-        return distance(a) - distance(b) || a.y - b.y || a.x - b.x;
-      })[0];
-    if (!candidate) continue;
-    const airport: [number, number, TerrainKind, PlayerId] = [candidate.x, candidate.y, 'airport', owner];
-    const existingIndex = cells.findIndex(cell => cell[0] === candidate.x && cell[1] === candidate.y);
-    if (existingIndex === -1) cells.push(airport);
-    else cells[existingIndex] = airport;
-    cellByPosition.set(`${candidate.x},${candidate.y}`, airport);
-  }
-  return { ...scenario, board: { ...scenario.board, cells } };
-}
-
-export const builtInScenarioData = rawBuiltInScenarioData.map(addBuiltInAirports);
+/** Built-in airports are explicit map data so facilities remain balanced and reviewable. */
+export const builtInScenarioData = rawBuiltInScenarioData;
 
 // A compact, independently valid fallback keeps the app playable even if a
 // future edit corrupts the larger built-in data set. Keep this separate from
@@ -319,9 +284,13 @@ export function scenarioById(id: string | undefined): ScenarioDefinition | undef
 export function createScenarioInitialState(scenario: ScenarioDefinition): GameState {
   const base = createGameState(scenario.board);
   const nextId: Record<PlayerId, number> = { red: 0, blue: 0 };
+  // Red is the first player, so grant its opening income before the first
+  // action. Blue receives the same income when red ends the turn; this keeps
+  // symmetric scenarios symmetric without changing the end-turn phase.
+  const redIncome = playerOwnedProperties(base, 'red').length * 1000;
   return {
     ...base, scenarioId: scenario.id,
-    players: { red: { gold: scenario.startingGold, income: 0 }, blue: { gold: scenario.startingGold, income: 0 } },
+    players: { red: { gold: scenario.startingGold + redIncome, income: redIncome }, blue: { gold: scenario.startingGold, income: 0 } },
     units: scenario.initialUnits.map(unit => {
       nextId[unit.owner] += 1;
       const stats = unitStats[unit.kind];

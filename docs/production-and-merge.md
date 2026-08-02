@@ -8,9 +8,9 @@ New scenarios use the `facility-v2` production rule:
 - `airport` produces air units.
 - `port` produces naval units.
 
-The rules are data-driven from `unitDefinitions`, so the command layer, CPU, UI, scenario editor, and persistence all use the same facility mapping. Built-in scenarios that start with aircraft receive an owned, empty airport near their starting air force.
+The rules are data-driven from `unitDefinitions`, so the command layer, CPU, UI, scenario editor, and persistence all use the same facility mapping. Every built-in scenario explicitly defines an owned airport for both sides, even when no aircraft starts on the map, so air production remains a strategic option.
 
-Custom scenario JSON written before airports were introduced may omit `productionRules`. Those scenarios use `legacy-factory-air`, which keeps aircraft production at factories. Newly saved custom scenarios persist the selected rule explicitly, so adding an airport is opt-in for new scenario definitions.
+Custom scenario JSON written before airports were introduced may omit `productionRules`. Those scenarios use `legacy-factory-air`, which keeps aircraft production at factories. New scenarios created by the editor default to `facility-v2`, and the editor persists an explicit rule selection; legacy remains available for compatibility.
 
 This follows the classic Wars-series separation of ground bases, airports, and seaports. The [Super Famicom Wars reference](https://gamefaqs.gamespot.com/snes/577448-super-famicom-wars/faqs/16941) describes ground units at bases/HQ, air units at airports, and naval units at seaports.
 

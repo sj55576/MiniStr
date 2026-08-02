@@ -91,7 +91,7 @@ describe('expanded map roster', () => {
     expect(availableScenarios().some(scenario => scenario.id === customScenario.id)).toBe(true);
     if (saved.ok) expect(createScenarioInitialState(saved.value)).toMatchObject({
       scenarioId: customScenario.id,
-      players: { red: { gold: 1234 }, blue: { gold: 1234 } },
+      players: { red: { gold: 2234 }, blue: { gold: 1234 } },
       units: [{ id: 'r1' }, { id: 'b1' }],
     });
 

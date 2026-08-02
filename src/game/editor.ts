@@ -1,4 +1,4 @@
-import { isPropertyTerrainKind } from './facilities';
+import { defaultProductionRule, isPropertyTerrainKind } from './facilities';
 import { createScenarioInitialState, loadScenarioDefinitions, scenarioDefinitionToData, type InitialUnit, type ScenarioData, type ScenarioDefinition, type VictoryCondition } from './maps';
 import type { GameResult, GameState, PlayerId, Position, TerrainKind, UnitKind } from './types';
 
@@ -19,7 +19,7 @@ export function createScenarioEditor(): ScenarioEditorState {
   return {
     data: {
       id: 'custom-operation', name: '新規作戦', briefing: 'ここに作戦概要を入力してください。', startingGold: 6000,
-      board: { width: 8, height: 6, cells: [] }, initialUnits: [],
+      board: { width: 8, height: 6, cells: [] }, initialUnits: [], productionRules: defaultProductionRule,
       victoryConditions: defaultVictory, defeatConditions: defaultDefeat,
     },
     selected: { x: 0, y: 0 }, tool: 'terrain', terrain: 'plain', owner: undefined,

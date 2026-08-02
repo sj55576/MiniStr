@@ -15,7 +15,7 @@ export const unitNames: Record<UnitKind, string> = {
 };
 
 export const unitTokens: Record<UnitKind, string> = {
-  infantry: '歩', tank: '戦', artillery: '砲', fighter: '戦', bomber: '爆',
+  infantry: '歩', tank: '戦', artillery: '砲', fighter: '空', bomber: '爆',
   destroyer: '艦', landingShip: '輸', recon: '偵', rocket: '自', antiAir: '防',
 };
 
