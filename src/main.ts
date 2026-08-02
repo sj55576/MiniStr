@@ -1,6 +1,6 @@
 import './style.css';
 import { isMergeableUnit } from './game';
-import { allProducibleUnitKinds, applyEditorTool, applyGameCommand, AUTO_SAVE_KEY, availableScenarios, campaignStages, canProduceUnit, countProductionFacilities, createCampaignProgress, createReplay, createScenarioEditor, createScenarioInitialState, damageRange, deleteSaves, describeVictoryCondition, enemyThreatPreview, exportScenarioEditorJson, forecastCombat, getConditionProgress, gradeCampaignBattle, hasSavedGame, hasStoredSaveData, idleProductionFacilities, importScenarioEditorJson, isCampaignScenarioUnlocked, isDeployedUnit, isPropertyTerrainKind, loadCampaignProgress, loadCustomScenarios, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, reachablePositionsForPlayer, recordCampaignVictory, saveCampaignProgress, saveCustomScenario, saveGame, scenarioById, scenarioLoadError, serializeReplay, summarizeReplay, terrainKinds, validateEditorScenario, type CampaignGradeResult, type DeployedUnit, type GameCommand, type GameState, type PlayerId, type Position, type ReplayFile, type ScenarioEditorState, type TerrainKind, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visibleEnemyThreats, visiblePositions } from './game';
+import { allProducibleUnitKinds, applyEditorTool, applyGameCommand, AUTO_SAVE_KEY, availableScenarios, campaignStages, countProductionFacilities, createCampaignProgress, createReplay, createScenarioEditor, createScenarioInitialState, damageRange, deleteSaves, describeVictoryCondition, enemyThreatPreview, exportScenarioEditorJson, forecastCombat, getConditionProgress, gradeCampaignBattle, hasSavedGame, hasStoredSaveData, idleProductionFacilities, importScenarioEditorJson, isCampaignScenarioUnlocked, isDeployedUnit, isPropertyTerrainKind, loadCampaignProgress, loadCustomScenarios, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, productionKindsForRule, productionRules, reachablePositionsForPlayer, recordCampaignVictory, saveCampaignProgress, saveCustomScenario, saveGame, scenarioById, scenarioLoadError, serializeReplay, summarizeReplay, terrainKinds, validateEditorScenario, type CampaignGradeResult, type DeployedUnit, type GameCommand, type GameState, type PlayerId, type Position, type ProductionRule, type ReplayFile, type ScenarioEditorState, type TerrainKind, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visibleEnemyThreats, visiblePositions } from './game';
 import { chooseCpuAction, type CpuDifficulty } from './ai';
 import { nextBoardPosition } from './ui/boardNavigation';
 import { BOARD_ZOOM_LEVELS, boardAreaWidth, boardTileSize, boardZoomPercent, defaultBoardZoomIndex } from './ui/boardZoom';
@@ -137,11 +137,11 @@ const inspectorRows = (rows: readonly InspectorRow[]) => `<dl class="tile-inspec
  * sentence for screen readers. It is built separately from the board so moving
  * focus can refresh it without rebuilding the board.
  */
-function renderTileInspector(state: GameState): string {
+function renderTileInspector(state: GameState, productionRule: ProductionRule): string {
   const visible = new Set(visiblePositions(state, 'red').map(key));
   const selectedUnit = state.units.find(unit => unit.id === selected);
   const inspection = inspectTile(state, focusedPosition, 'red', visible,
-    selectedUnit?.owner === 'red' && isDeployedUnit(selectedUnit) ? selectedUnit.kind : undefined);
+    selectedUnit?.owner === 'red' && isDeployedUnit(selectedUnit) ? selectedUnit.kind : undefined, productionRule);
   const body = inspection
     ? `<div class="tile-inspector-head"><div><p class="card-kicker">TILE INTEL</p><h3 id="tile-inspector-title">${escapeHtml(inspection.title)}</h3></div><span class="tile-inspector-coordinate">(${inspection.position.x + 1}, ${inspection.position.y + 1})</span></div><p class="tile-inspector-summary visually-hidden" aria-live="polite">${escapeHtml(describeTileInspection(inspection))}</p>${inspectorRows(inspection.rows)}${inspection.unit ? `<div class="tile-inspector-unit"><h4>${escapeHtml(inspection.unit.title)}</h4>${inspectorRows(inspection.unit.rows)}</div>` : ''}${inspection.hidden ? '<p class="tile-inspector-fog">未索敵のマスです。ユニットを近づけて視界を広げてください。</p>' : ''}`
     : '<div class="tile-inspector-head"><div><p class="card-kicker">TILE INTEL</p><h3 id="tile-inspector-title">マスを選択してください</h3></div></div>';
@@ -160,7 +160,8 @@ function refreshFocusedTileViews(): void {
     tile.tabIndex = Number(tile.dataset.x) === focusedPosition.x && Number(tile.dataset.y) === focusedPosition.y ? 0 : -1;
   }
   const inspector = app.querySelector('.tile-inspector');
-  if (inspector) inspector.outerHTML = renderTileInspector(replay?.state ?? game);
+  const renderedMap = scenarioById(replay?.file.mapId) ?? selectedMap;
+  if (inspector) inspector.outerHTML = renderTileInspector(replay?.state ?? game, renderedMap.productionRules);
 }
 
 /** Re-applies the width-derived default zoom unless the player has set it themselves. */
@@ -436,7 +437,8 @@ function render(): void {
     const cost = unitStats[kind].cost;
     const affordable = renderedGame.players.red.gold >= cost;
     const missing = Math.max(0, cost - renderedGame.players.red.gold);
-    const facilityName = terrainNames[canProduceUnit('port', kind) ? 'port' : canProduceUnit('airport', kind) ? 'airport' : 'factory'];
+    const productionTerrain = (['port', 'airport', 'factory'] as const).find(terrain => productionKindsForRule(productionRule)[terrain]?.includes(kind));
+    const facilityName = terrainNames[facility?.kind ?? productionTerrain ?? 'factory'];
     const where = buildable ? `${facilityName} (${facility.position.x + 1}, ${facility.position.y + 1})` : facilityName;
     const availability = !buildable ? '生産可能な空き施設がありません' : !affordable ? `資金不足（あと ${missing}G）` : '生産可能';
     return `<button class="produce produce-${kind}" data-kind="${kind}" ${replayMode || renderedGame.activePlayer !== 'red' || !buildable || !affordable ? 'disabled' : ''} title="${where}で${unitNames[kind]}を生産 (${cost}G) — ${availability}" aria-label="${where}で${unitNames[kind]}を${cost}ゴールドで生産、${availability}"><span aria-hidden="true">${unitTokens[kind]}</span>${unitNames[kind]} <em>${cost}G</em>${!affordable ? ` <small>資金不足（あと ${missing}G）</small>` : ''}</button>`;
@@ -503,7 +505,7 @@ function render(): void {
     ? { image: './assets/commander-red.png', alt: '赤軍司令官の肖像', title: 'RED COMMAND', label: '前線司令部' }
     : { image: './assets/commander-blue.png', alt: '青軍司令官の肖像', title: 'BLUE COMMAND', label: '敵軍司令部' };
   const mapTheme = `theme-${renderedMap.theme}`;
-  const tileInspectorPanel = renderTileInspector(renderedGame);
+  const tileInspectorPanel = renderTileInspector(renderedGame, productionRule);
   // The current numbered turn is still playable; timeout is normalized to a
   // survive condition that resolves only after this count reaches zero.
   const remainingTurns = renderedMap.turnLimit === undefined ? undefined : Math.max(0, renderedMap.turnLimit - renderedGame.turn + 1);
@@ -524,7 +526,7 @@ function render(): void {
     if (!map) return `<article class="campaign-stage locked"><div class="campaign-stage-number">0${index + 1}</div><div><p class="card-kicker">UNAVAILABLE</p><h3>作戦データを読み込めません</h3><p>組み込みシナリオの読み込みに失敗したため、この作戦は開始できません。</p><span>推奨 ${stage.recommendedTurns} ターン</span></div><button class="save-action" disabled>利用不可</button></article>`;
     return `<article class="campaign-stage ${unlocked ? '' : 'locked'}"><div class="campaign-stage-number">0${index + 1}</div><div><p class="card-kicker">${grade ? 'CLEARED' : unlocked ? 'OPEN' : 'LOCKED'}</p><h3>${escapeHtml(map.name)}</h3><p>${escapeHtml(map.briefing)}</p><span>推奨 ${stage.recommendedTurns} ターン</span></div>${grade ? `<strong class="campaign-grade grade-${grade.toLowerCase()}">${grade}</strong>` : ''}<button class="save-action campaign-start" data-campaign-id="${stage.scenarioId}" ${unlocked ? '' : 'disabled'}>${grade ? '再出撃' : '作戦開始'}</button></article>`;
   }).join('') : '';
-  const campaignOverlay = campaignMenuOpen ? `<div class="campaign-overlay" role="dialog" aria-modal="true" aria-labelledby="campaign-title"><section class="campaign-screen"><div class="campaign-heading"><div><p class="card-kicker">MINI CAMPAIGN</p><h2 id="campaign-title">国境戦役</h2><p>4つの戦場を勝ち抜き、最高評価を目指してください。</p></div><div class="campaign-heading-actions"><button id="campaign-skirmish" class="save-action">単体戦へ</button><button id="campaign-close" class="save-action">閉じる</button></div></div>${campaignNotice ? `<p class="campaign-notice" aria-live="polite">${escapeHtml(campaignNotice)}</p>` : ''}<div class="campaign-grid">${campaignCards}</div></section></div>` : '';
+  const campaignOverlay = campaignMenuOpen ? `<div class="campaign-overlay" role="dialog" aria-modal="true" aria-labelledby="campaign-title"><section class="campaign-screen"><div class="campaign-heading"><div><p class="card-kicker">MINI CAMPAIGN</p><h2 id="campaign-title">国境戦役</h2><p>${campaignStages.length}つの戦場を勝ち抜き、最高評価を目指してください。</p></div><div class="campaign-heading-actions"><button id="campaign-skirmish" class="save-action">単体戦へ</button><button id="campaign-close" class="save-action">閉じる</button></div></div>${campaignNotice ? `<p class="campaign-notice" aria-live="polite">${escapeHtml(campaignNotice)}</p>` : ''}<div class="campaign-grid">${campaignCards}</div></section></div>` : '';
   const editorVictory = editor.data.victoryConditions[0] ?? { type: 'captureCapital' as const };
   const editorVictoryTarget = editorVictory.type === 'hold' ? editorVictory.turns : editorVictory.type === 'survive' ? editorVictory.untilTurn : editorVictory.type === 'score' ? editorVictory.target : 1;
   const editorBoard = Array.from({ length: editor.data.board.height }, (_, y) => Array.from({ length: editor.data.board.width }, (_, x) => {
@@ -597,6 +599,26 @@ function render(): void {
   }));
   document.querySelector<HTMLButtonElement>('#editor-close')?.addEventListener('click', () => { editorOpen = false; render(); });
   if (editorOpen) {
+    // Keep the existing compact editor markup while adding the production rule
+    // as a real form control. The value is part of the exported scenario data.
+    const editorFields = app.querySelector<HTMLElement>('.editor-fields');
+    if (editorFields && !editorFields.querySelector('#editor-production-rule')) {
+      const label = document.createElement('label');
+      label.textContent = '生産ルール';
+      const select = document.createElement('select');
+      select.id = 'editor-production-rule';
+      for (const rule of productionRules) {
+        const option = document.createElement('option');
+        option.value = rule;
+        option.textContent = rule === 'facility-v2' ? '工場・空港・港湾を分離' : '旧形式（工場で航空機を生産）';
+        option.selected = rule === editor.data.productionRules;
+        select.append(option);
+      }
+      label.append(select);
+      const victory = editorFields.querySelector('#editor-victory')?.parentElement;
+      if (victory) editorFields.insertBefore(label, victory);
+      else editorFields.append(label);
+    }
     const field = <T extends HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector: string) => app.querySelector<T>(selector)!;
     field<HTMLSelectElement>('#editor-tool').onchange = () => { editor = { ...editor, tool: field<HTMLSelectElement>('#editor-tool').value as ScenarioEditorState['tool'] }; };
     field<HTMLSelectElement>('#editor-terrain').onchange = () => { editor = { ...editor, terrain: field<HTMLSelectElement>('#editor-terrain').value as TerrainKind }; };
@@ -607,6 +629,7 @@ function render(): void {
     field<HTMLInputElement>('#editor-name').oninput = () => { editor = { ...editor, data: { ...editor.data, name: field<HTMLInputElement>('#editor-name').value } }; };
     field<HTMLTextAreaElement>('#editor-briefing').oninput = () => { editor = { ...editor, data: { ...editor.data, briefing: field<HTMLTextAreaElement>('#editor-briefing').value } }; };
     field<HTMLInputElement>('#editor-gold').oninput = () => { editor = { ...editor, data: { ...editor.data, startingGold: Number(field<HTMLInputElement>('#editor-gold').value) } }; };
+    field<HTMLSelectElement>('#editor-production-rule').onchange = () => { editor = { ...editor, data: { ...editor.data, productionRules: field<HTMLSelectElement>('#editor-production-rule').value as ProductionRule } }; };
     const updateVictory = () => setEditorVictory(field<HTMLSelectElement>('#editor-victory').value as typeof editorVictoryKinds[number], Number(field<HTMLInputElement>('#editor-victory-target').value));
     field<HTMLSelectElement>('#editor-victory').onchange = updateVictory;
     field<HTMLInputElement>('#editor-victory-target').oninput = updateVictory;
@@ -881,7 +904,10 @@ function act(position: Position): void {
   } else if (target?.owner === 'blue') {
     selected = target.id;
     message = `${unitNames[target.kind]}の移動範囲と攻撃危険域を表示しています。`;
-  } else if (facility && (!selected || selectedUnitIsRed())) {
+  } else if (selected && selectedUnitIsRed() && moveSelectedUnit(position)) {
+    // A reachable facility is a normal movement destination. Production target
+    // selection is intentionally available only while no unit is selected.
+  } else if (facility && !selected) {
     selectedFacility = { ...position };
     message = `${terrainNames[facility.kind]} (${position.x + 1}, ${position.y + 1}) を生産先に選びました。生産するユニットを選んでください。`;
   } else if (moveSelectedUnit(position)) {

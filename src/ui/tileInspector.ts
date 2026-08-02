@@ -1,4 +1,4 @@
-import { defenseStars, isDeployedUnit, isPropertyTerrainKind, movementCost, productionKindsByTerrain, terrainAt, unitStats, type GameState, type PlayerId, type Position, type UnitKind } from '../game';
+import { defaultProductionRule, defenseStars, isDeployedUnit, isPropertyTerrainKind, movementCost, productionKindsForRule, terrainAt, type ProductionRule, unitStats, type GameState, type PlayerId, type Position, type UnitKind } from '../game';
 import { ownerLabel, sideLabel, terrainNames, unitNames } from './labels';
 
 export interface InspectorRow { label: string; value: string }
@@ -33,6 +33,7 @@ export function inspectTile(
   viewer: PlayerId,
   visible: ReadonlySet<string>,
   selectedUnitKind?: UnitKind,
+  productionRule: ProductionRule = defaultProductionRule,
 ): TileInspection | undefined {
   const terrain = terrainAt(state.board, position);
   if (!terrain) return undefined;
@@ -40,7 +41,7 @@ export function inspectTile(
   const title = `${terrainNames[terrain.kind]}${property ? `（${ownerLabel(terrain.owner, viewer)}）` : ''}`;
   const rows: InspectorRow[] = [{ label: '防御', value: stars(defenseStars(terrain)) }];
   if (property && terrain.capturePoints !== undefined) rows.push({ label: '占領値', value: `${terrain.capturePoints}` });
-  const producible = productionKindsByTerrain[terrain.kind];
+  const producible = productionKindsForRule(productionRule)[terrain.kind];
   if (producible?.length) rows.push({ label: '生産', value: producible.map(kind => unitNames[kind]).join('・') });
   if (selectedUnitKind) {
     const cost = movementCost(state.board, position, selectedUnitKind);

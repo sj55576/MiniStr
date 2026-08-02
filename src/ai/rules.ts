@@ -115,11 +115,17 @@ function knownUnitAt(state: GameState, player: PlayerId, position: Position, vis
     && (unit.owner === player || visibleEnemies.some(enemy => enemy.id === unit.id)));
 }
 
-function emptyOwnedFacility(state: GameState, player: PlayerId, kind: UnitKind, visibleEnemies: readonly Unit[]): Position | undefined {
+function emptyOwnedFacility(state: GameState, player: PlayerId, kind: UnitKind): Position | undefined {
   for (let y = 0; y < state.board.height; y += 1) for (let x = 0; x < state.board.width; x += 1) {
     const position = { x, y };
     const tile = terrainAt(state.board, position);
-    if (tile?.owner === player && !knownUnitAt(state, player, position, visibleEnemies)) {
+    // Whether one of our facilities is occupied is observable even through fog:
+    // the command layer must reject production at every occupied tile. Do not
+    // use the fog-limited `knownUnitAt` here, or a hidden enemy can make CPU
+    // choose a guaranteed-invalid produce command.
+    const occupied = state.units.some(unit => isDeployedUnit(unit)
+      && unit.position.x === position.x && unit.position.y === position.y);
+    if (tile?.owner === player && !occupied) {
       const productionRule = scenarioById(state.scenarioId)?.productionRules ?? 'legacy-factory-air';
       if (canProduceUnit(tile.kind, kind, productionRule)) return position;
     }
@@ -140,7 +146,7 @@ function specialistProduction(state: GameState, player: PlayerId, visibleEnemies
   if (!ownKinds.has('bomber') && visible.some(unit => ['tank', 'artillery', 'rocket', 'destroyer'].includes(unit.kind))) candidates.push('bomber');
   for (const kind of candidates) {
     if (unitStats[kind].cost > gold) continue;
-    const factory = emptyOwnedFacility(state, player, kind, visibleEnemies);
+    const factory = emptyOwnedFacility(state, player, kind);
     if (factory) return { type: 'produce', factory, kind };
   }
   return undefined;
@@ -153,14 +159,14 @@ function productionAction(state: GameState, player: PlayerId, config: CpuDifficu
     .some(unit => targets.some(target => !sameLandComponent(context.landComponents, unit.position, target)));
   const hasLandingShip = state.units.some(unit => unit.owner === player && unit.kind === 'landingShip');
   if (hasRemoteInfantry && !hasLandingShip && state.players[player].gold >= unitStats.landingShip.cost) {
-    const port = emptyOwnedFacility(state, player, 'landingShip', context.visibleEnemies);
+    const port = emptyOwnedFacility(state, player, 'landingShip');
     if (port) return { type: 'produce', factory: port, kind: 'landingShip' };
   }
   const specialist = specialistProduction(state, player, context.visibleEnemies);
   if (specialist) return specialist;
   const kind = preferredProduction(state, player);
   if (!kind) return undefined;
-  const factory = emptyOwnedFacility(state, player, kind, context.visibleEnemies);
+  const factory = emptyOwnedFacility(state, player, kind);
   return factory ? { type: 'produce', factory, kind } : undefined;
 }
 

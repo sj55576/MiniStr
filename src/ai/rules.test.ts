@@ -70,7 +70,6 @@ describe('Phase 3 rule-based CPU', () => {
     expect(chooseCpuAction(state, 'normal')).toEqual({ type: 'move', unitId: 'i', destination: { x: 2, y: 0 } });
   });
 });
-
 describe('CPU fog-of-war attacks', () => {
   it('does not choose an attack against an in-range enemy outside allied vision', () => {
     const state = stateWith(createGameState(createBoard(5, 1)), { units: [
@@ -145,7 +144,7 @@ describe('CPU positional evaluation and production', () => {
     expect(chooseCpuAction(withHiddenEnemy)).toEqual(chooseCpuAction(base));
   });
 
-  it('does not let an unseen enemy alter its production choice', () => {
+  it('does not let an unseen enemy away from a facility alter its production choice', () => {
     const board = createBoard(3, 1);
     board.terrain[0]![0] = { kind: 'factory', owner: 'red', capturePoints: 20 };
     board.terrain[0]![2] = { kind: 'capital', owner: 'blue', capturePoints: 20 };
@@ -153,7 +152,9 @@ describe('CPU positional evaluation and production', () => {
       players: { red: { gold: 10_000, income: 0 }, blue: { gold: 0, income: 0 } },
     });
     const withHiddenEnemy = stateWith(base, { units: [
-      { id: 'hidden', kind: 'infantry', owner: 'blue', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      // Facility occupancy is intentionally observable even through fog; keep
+      // this legacy fog-invariance test focused on an unrelated hidden unit.
+      { id: 'hidden', kind: 'infantry', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
     ] });
 
     expect(chooseCpuAction(withHiddenEnemy)).toEqual(chooseCpuAction(base));
