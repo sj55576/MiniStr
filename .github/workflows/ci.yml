@@ -6,6 +6,7 @@ on:
   push:
     branches: [main]
 
+# Fork pull requests receive GitHub's read-only token and no repository secrets.
 permissions:
   contents: read
 
@@ -15,10 +16,6 @@ concurrency:
 
 jobs:
   test-and-build:
-    # Forked PRs run against untrusted code with no repository secrets to leak,
-    # but they still consume this repository's Actions minutes. Skip them; a
-    # maintainer can push the branch here (or merge) to get a checked run.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
