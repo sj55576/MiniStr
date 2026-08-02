@@ -10,7 +10,8 @@
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:links": "bash scripts/check-private-links.sh"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
