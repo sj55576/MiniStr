@@ -1,6 +1,6 @@
 # MiniStr
 
-ブラウザで遊べるターン制戦略ゲームです。Issue #1 の **Phase 2–6** を実装しています。
+ブラウザで遊べるターン制戦略ゲームです。Issue #1 の仕様案をもとに **Phase 1–6** を実装しています。
 
 🎮 **[GitHub Pages でプレイする](https://sj55576.github.io/MiniStr/)** | 📚 [実装仕様](#実装仕様) | 🛠️ [セットアップ](#セットアップ)
 
@@ -230,6 +230,9 @@ npm install
 # 開発サーバーを起動（http://localhost:5173）
 npm run dev
 
+# 型チェック（テストコードを含む）
+npm run typecheck:test
+
 # テストを実行
 npm test
 
@@ -241,15 +244,32 @@ npm run build
 
 # ビルド結果をプレビュー
 npm run preview
+
+# コミットメッセージに私的なセッション URL が無いか検査
+npm run check:links
 ```
+
+### CI
+
+`main` への push と pull request で、型チェック・テスト・ビルドを実行します。fork からの pull request も同じ検証を実行しますが、read-only の権限のみで、リポジトリの秘密情報は利用しません。
+
+あわせて、pull request が追加するコミットメッセージに私的なコーディングセッションの URL が含まれていないことを検査します（`npm run check:links` と同じ検査）。この種の行は開発ツールが自動で付与することがあるため、機械的に検出します。
 
 ### デプロイ
 
-`main` ブランチへの push で GitHub Pages に自動デプロイされます。
+`main` ブランチへの push で GitHub Pages に自動デプロイされます。デプロイは型チェック・テスト・ビルドがすべて成功した場合にのみ実行されます。
+
+## 既知の制限
+
+現時点で継続対応としている項目です。判断の経緯は [公開前最終確認](docs/release-readiness.md) に記録しています。
+
+- DOM/UI フローの自動テスト、lint、カバレッジ計測、CPU 対 CPU の完走テストがありません（[#52](https://github.com/sj55576/MiniStr/issues/52)）
+- セーブは手動・自動が各1件のみで、任意の複数スロットには対応していません。localStorage の使用量表示、`main.ts` の分割、多言語対応も未着手です（[#53](https://github.com/sj55576/MiniStr/issues/53)）
+- 移動・戦闘のアニメーションと効果音は未実装です。1手ずつの逐次描画とスキップには対応しています（[#98](https://github.com/sj55576/MiniStr/issues/98)）
 
 ## 貢献
 
-バグ報告、機能提案、PR はお気軽にどうぞ。公開前の確認内容と既知の制限は [公開前最終確認](docs/release-readiness.md)、fork PR を含む検証方針と投稿時の注意は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
+バグ報告、機能提案、PR はお気軽にどうぞ。公開前の確認内容は [公開前最終確認](docs/release-readiness.md)、fork PR を含む検証方針と投稿時の注意は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
 
 ## 素材
 
