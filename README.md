@@ -249,7 +249,7 @@ npm run preview
 
 ## 貢献
 
-バグ報告、機能提案、PR はお気軽にどうぞ。
+バグ報告、機能提案、PR はお気軽にどうぞ。公開前の確認内容と既知の制限は [公開前最終確認](docs/release-readiness.md)、fork PR を含む検証方針と投稿時の注意は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
 
 ## 素材
 
