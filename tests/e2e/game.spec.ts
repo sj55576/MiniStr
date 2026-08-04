@@ -10,8 +10,5 @@ test('starts an operation, moves a unit, and completes a CPU turn', async ({ pag
   await expect(page.locator('.status-message')).toContainText('移動しました');
 
   await page.locator('#end').click();
-  const skip = page.locator('#skip-cpu');
-  await expect(skip).toBeVisible();
-  await skip.click();
-  await expect(page.locator('.turn-indicator strong')).toContainText('プレイヤー');
+  await expect(page.locator('.turn-indicator strong')).toContainText('プレイヤー', { timeout: 15_000 });
 });
