@@ -265,9 +265,7 @@ npm run check:links
 
 現時点で継続対応としている項目です。判断の経緯は [公開前最終確認](docs/release-readiness.md) に記録しています。
 
-- DOM/UI フローの自動テスト、lint、カバレッジ計測、CPU 対 CPU の完走テストがありません（[#52](https://github.com/sj55576/MiniStr/issues/52)）
 - セーブは手動・自動が各1件のみで、任意の複数スロットには対応していません。localStorage の使用量表示、`main.ts` の分割、多言語対応も未着手です（[#53](https://github.com/sj55576/MiniStr/issues/53)）
-- 移動・戦闘のアニメーションと効果音は未実装です。1手ずつの逐次描画とスキップには対応しています（[#98](https://github.com/sj55576/MiniStr/issues/98)）
 
 ## 貢献
 
