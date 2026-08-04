@@ -1,11 +1,18 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vite';
 
 export default defineConfig({
   base: './',
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
   },
   server: {
-    middlewareMode: false
-  }
-})
+    middlewareMode: false,
+  },
+  test: {
+    environment: 'jsdom',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+    },
+  },
+});
