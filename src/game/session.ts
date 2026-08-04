@@ -11,6 +11,10 @@ export const SAVE_SCHEMA_VERSION = 3 as const;
 export const MAX_SAVE_BYTES = 1_000_000;
 export const MANUAL_SAVE_KEY = 'ministr.save.manual';
 export const AUTO_SAVE_KEY = 'ministr.save.auto';
+export const SAVE_SLOT_PREFIX = 'ministr.save.slot.';
+export const SAVE_SLOT_INDEX_KEY = 'ministr.save.slots';
+export const MAX_SAVE_SLOTS = 12;
+export const STORAGE_WARNING_BYTES = 4_000_000;
 
 export type GameCommand =
   | { type: 'move'; unitId: string; destination: Position }
@@ -35,6 +39,25 @@ export interface SavedGame {
   savedAt: string;
 }
 
+/** Metadata is kept separately so the save picker never needs to trust or parse arbitrary storage values. */
+export interface SaveSlot {
+  id: string;
+  name: string;
+  mapId: string;
+  difficulty: 'easy' | 'normal' | 'hard';
+  turn: number;
+  savedAt: string;
+  bytes: number;
+  /** `legacy` entries are the pre-slot manual/auto saves and remain readable. */
+  source: 'slot' | 'legacy';
+}
+
+export interface StorageUsage {
+  bytes: number;
+  itemCount: number;
+  warning: boolean;
+}
+
 /** v1 had the same fields; keeping named migrations makes later changes append-only. */
 function migrateSaveV1ToV2(value: Record<string, unknown>): Record<string, unknown> {
   return { ...structuredClone(value), schemaVersion: 2 };
@@ -54,6 +77,9 @@ export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  /** Present on browser Storage; optional so existing storage adapters stay compatible. */
+  readonly length?: number;
+  key?(index: number): string | null;
 }
 
 export function applyGameCommand(state: GameState, command: GameCommand): GameResult {
@@ -286,4 +312,99 @@ export function deleteSaves(storage: StorageLike): GameResult<void> {
   } catch {
     return { ok: false, error: 'セーブデータを削除できませんでした。' };
   }
+}
+
+const slotKey = (id: string) => `${SAVE_SLOT_PREFIX}${id}`;
+const bytesOf = (value: string) => new TextEncoder().encode(value).byteLength;
+const validSlotId = (value: string) => /^[a-z0-9][a-z0-9-]{0,47}$/.test(value);
+const validSlotName = (value: string) => value.length > 0 && value.length <= 40
+  && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+interface StoredSlotIndexEntry { id: string; name: string }
+
+function readSlotIndex(storage: StorageLike): StoredSlotIndexEntry[] {
+  try {
+    const raw = storage.getItem(SAVE_SLOT_INDEX_KEY);
+    if (!raw || bytesOf(raw) > 32_000) return [];
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value)) return [];
+    const ids = new Set<string>();
+    return value.flatMap(entry => {
+      if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.name !== 'string'
+        || !validSlotId(entry.id) || !validSlotName(entry.name) || ids.has(entry.id)) return [];
+      ids.add(entry.id);
+      return [{ id: entry.id, name: entry.name }];
+    }).slice(0, MAX_SAVE_SLOTS);
+  } catch { return []; }
+}
+function writeSlotIndex(storage: StorageLike, entries: readonly StoredSlotIndexEntry[]): GameResult<void> {
+  try { storage.setItem(SAVE_SLOT_INDEX_KEY, JSON.stringify(entries)); return { ok: true, value: undefined }; }
+  catch { return { ok: false, error: 'セーブスロット一覧を書き込めませんでした。' }; }
+}
+function toSaveSlot(id: string, name: string, source: SaveSlot['source'], raw: string): SaveSlot | undefined {
+  const parsed = parseSavedGame(raw);
+  if (!parsed.ok) return undefined;
+  const saved = parsed.value;
+  return { id, name, source, mapId: saved.mapId, difficulty: saved.difficulty, turn: saved.gameState.turn, savedAt: saved.savedAt, bytes: bytesOf(raw) };
+}
+
+/** Lists valid named saves plus compatible pre-v4 manual/auto saves. Invalid records are deliberately hidden. */
+export function listSaveSlots(storage: StorageLike): SaveSlot[] {
+  try {
+    const slots = readSlotIndex(storage).flatMap(entry => {
+      const raw = storage.getItem(slotKey(entry.id));
+      return raw === null ? [] : [toSaveSlot(entry.id, entry.name, 'slot', raw)].filter((slot): slot is SaveSlot => slot !== undefined);
+    });
+    for (const [id, name, key] of [['manual', '以前の手動セーブ', MANUAL_SAVE_KEY], ['auto', '以前のオートセーブ', AUTO_SAVE_KEY]] as const) {
+      const raw = storage.getItem(key);
+      const slot = raw === null ? undefined : toSaveSlot(id, name, 'legacy', raw);
+      if (slot) slots.push(slot);
+    }
+    return slots.sort((left, right) => right.savedAt.localeCompare(left.savedAt));
+  } catch { return []; }
+}
+function namedSaveKey(id: string): string | undefined {
+  return id === 'manual' ? MANUAL_SAVE_KEY : id === 'auto' ? AUTO_SAVE_KEY : validSlotId(id) ? slotKey(id) : undefined;
+}
+
+/** Saves to a named slot. Legacy ids are readable but intentionally cannot be overwritten through this API. */
+export function saveGameToSlot(storage: StorageLike, id: string, name: string, game: Omit<SavedGame, 'schemaVersion' | 'savedAt'>): GameResult<SavedGame> {
+  if (!validSlotId(id) || !validSlotName(name)) return { ok: false, error: 'セーブスロット名またはIDが不正です。' };
+  const index = readSlotIndex(storage);
+  const existing = index.find(entry => entry.id === id);
+  if (!existing && index.length >= MAX_SAVE_SLOTS) return { ok: false, error: `セーブスロットは最大${MAX_SAVE_SLOTS}件です。不要なセーブを削除してください。` };
+  const saved = saveGame(storage, slotKey(id), game);
+  if (!saved.ok) return saved;
+  const next = existing ? index.map(entry => entry.id === id ? { id, name } : entry) : [...index, { id, name }];
+  const indexed = writeSlotIndex(storage, next);
+  return indexed.ok ? saved : indexed;
+}
+export function loadGameFromSlot(storage: StorageLike, id: string): GameResult<SavedGame> | undefined {
+  const key = namedSaveKey(id);
+  if (!key) return { ok: false, error: 'セーブスロットが不正です。' };
+  return loadGame(storage, [key]);
+}
+export function deleteSaveSlot(storage: StorageLike, id: string): GameResult<void> {
+  if (!validSlotId(id)) return { ok: false, error: 'セーブスロットが不正です。' };
+  const index = readSlotIndex(storage);
+  if (!index.some(entry => entry.id === id)) return { ok: false, error: 'セーブスロットが見つかりません。' };
+  try {
+    storage.removeItem(slotKey(id));
+    return writeSlotIndex(storage, index.filter(entry => entry.id !== id));
+  } catch { return { ok: false, error: 'セーブスロットを削除できませんでした。' }; }
+}
+
+/** Counts this app's localStorage footprint, including scenarios, campaign state, sound settings, and saves. */
+export function getStorageUsage(storage: StorageLike): StorageUsage {
+  try {
+    const keys: string[] = [];
+    if (typeof storage.length === 'number' && storage.key) {
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (key?.startsWith('ministr.')) keys.push(key);
+      }
+    } else keys.push(MANUAL_SAVE_KEY, AUTO_SAVE_KEY, SAVE_SLOT_INDEX_KEY, ...readSlotIndex(storage).map(entry => slotKey(entry.id)));
+    const uniqueKeys = [...new Set(keys)];
+    const bytes = uniqueKeys.reduce((total, key) => total + bytesOf(key) + bytesOf(storage.getItem(key) ?? ''), 0);
+    return { bytes, itemCount: uniqueKeys.filter(key => storage.getItem(key) !== null).length, warning: bytes >= STORAGE_WARNING_BYTES };
+  } catch { return { bytes: 0, itemCount: 0, warning: false }; }
 }
