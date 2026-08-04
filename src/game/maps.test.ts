@@ -112,9 +112,9 @@ describe('expanded map roster', () => {
     const storage = new MemoryStorage();
     storage.setItem(CUSTOM_SCENARIOS_KEY, JSON.stringify({
       schemaVersion: 1,
-      scenarios: [{ ...customScenario, id: 'unsafe\"persisted' }],
+      scenarios: [{ ...customScenario, id: 'unsafe"persisted' }],
     }));
     expect(loadCustomScenarios(storage).ok).toBe(false);
-    expect(scenarioById('unsafe\"persisted')).toBeUndefined();
+    expect(scenarioById('unsafe"persisted')).toBeUndefined();
   });
 });

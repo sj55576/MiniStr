@@ -18,8 +18,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm run typecheck:test
-      - run: npm test
+      - run: npm run test:coverage
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
