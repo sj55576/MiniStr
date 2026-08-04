@@ -3,6 +3,7 @@ import {
   applyGameCommand, attackUnit, AUTO_SAVE_KEY, createBoard, createGameState, loadGame, MAX_SAVE_BYTES, moveUnit,
   hasSavedGame, isGameCommand, parseSavedGame, replayCommands, saveGame, SAVE_SCHEMA_VERSION, type GameCommand,
   createScenarioInitialState, saveCustomScenario, scenarioById, type GameState, type StorageLike, unitStats,
+  deleteSaveSlot, getStorageUsage, listSaveSlots, loadGameFromSlot, saveGameToSlot, STORAGE_WARNING_BYTES,
 } from './index';
 
 function withUnit(): GameState {
@@ -215,5 +216,48 @@ describe('wait command persistence', () => {
     const legacy = { ...JSON.parse(storage.data.get(AUTO_SAVE_KEY)!), schemaVersion: 2 };
     const parsed = parseSavedGame(JSON.stringify(legacy));
     expect(parsed.ok && parsed.value.schemaVersion).toBe(SAVE_SCHEMA_VERSION);
+  });
+});
+
+describe('named save slots', () => {
+  it('lists, loads, replaces, and deletes independently named saves', () => {
+    const storage = new MemoryStorage();
+    const initialState = canonicalSkirmish();
+    const game = { mapId: 'skirmish', difficulty: 'hard' as const, initialState, commands: [], gameState: initialState };
+    expect(saveGameToSlot(storage, 'campaign-one', '国境戦役', game).ok).toBe(true);
+    expect(listSaveSlots(storage)).toEqual([expect.objectContaining({
+      id: 'campaign-one', name: '国境戦役', mapId: 'skirmish', difficulty: 'hard', turn: 1, source: 'slot',
+    })]);
+    expect(loadGameFromSlot(storage, 'campaign-one')?.ok).toBe(true);
+    expect(saveGameToSlot(storage, 'campaign-one', '国境戦役・続き', game).ok).toBe(true);
+    expect(listSaveSlots(storage)[0]).toEqual(expect.objectContaining({ name: '国境戦役・続き' }));
+    expect(deleteSaveSlot(storage, 'campaign-one')).toEqual({ ok: true, value: undefined });
+    expect(loadGameFromSlot(storage, 'campaign-one')).toBeUndefined();
+  });
+
+  it('keeps legacy manual saves readable and rejects unsafe slot identifiers', () => {
+    const storage = new MemoryStorage();
+    const initialState = canonicalSkirmish();
+    expect(saveGame(storage, AUTO_SAVE_KEY, { mapId: 'skirmish', difficulty: 'normal', initialState, commands: [], gameState: initialState }).ok).toBe(true);
+    expect(listSaveSlots(storage)).toEqual([expect.objectContaining({ id: 'auto', source: 'legacy' })]);
+    expect(loadGameFromSlot(storage, 'auto')?.ok).toBe(true);
+    expect(saveGameToSlot(storage, '../unsafe', 'x', { mapId: 'skirmish', difficulty: 'normal', initialState, commands: [], gameState: initialState }))
+      .toEqual({ ok: false, error: 'セーブスロット名またはIDが不正です。' });
+  });
+
+  it('reports the complete app storage footprint when keys can be enumerated', () => {
+    const values = new Map<string, string>([
+      ['ministr.save.auto', 'abc'], ['ministr.customScenarios', 'def'], ['foreign.key', 'ignored'],
+    ]);
+    const storage: StorageLike = {
+      get length() { return values.size; },
+      key: index => [...values.keys()][index] ?? null,
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value); },
+      removeItem: key => { values.delete(key); },
+    };
+    expect(getStorageUsage(storage)).toMatchObject({ itemCount: 2, warning: false });
+    values.set('ministr.large', 'x'.repeat(STORAGE_WARNING_BYTES));
+    expect(getStorageUsage(storage).warning).toBe(true);
   });
 });
