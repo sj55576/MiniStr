@@ -88,7 +88,7 @@ describe('campaign progression', () => {
     expect(better.ok && better.value.bestGrades.skirmish).toBe('S');
   });
 
-  it('unlocks all four scenarios strictly in order', () => {
+  it('unlocks all campaign scenarios strictly in order', () => {
     let progress = createCampaignProgress(NOW);
     for (const stage of campaignStages) {
       expect(isCampaignScenarioUnlocked(progress, stage.scenarioId)).toBe(true);
@@ -99,7 +99,7 @@ describe('campaign progression', () => {
     expect(progress.unlockedScenarioIds).toEqual(campaignStages.map(stage => stage.scenarioId));
   });
 
-  it('keeps pre-existing 4-stage saved progress valid as a prefix of the expanded roster', () => {
+  it('keeps pre-existing stage progress valid as a prefix of the expanded roster', () => {
     const legacyProgress: CampaignProgress = {
       schemaVersion: CAMPAIGN_SCHEMA_VERSION,
       unlockedScenarioIds: ['skirmish', 'islands', 'canyon', 'siege'],
@@ -132,9 +132,22 @@ describe('campaign persistence validation', () => {
     expect(storage.data.has(CAMPAIGN_STORAGE_KEY)).toBe(true);
   });
 
-  it('migrates valid v1 campaign progress', () => {
+  it('migrates valid v1 campaign progress through every schema version', () => {
     const legacy = { ...createCampaignProgress(NOW), schemaVersion: 1 };
     expect(parseCampaignProgress(JSON.stringify(legacy))).toEqual({ ok: true, value: createCampaignProgress(NOW) });
+  });
+
+  it('migrates completed v2 progress without losing its six-stage unlocks or grades', () => {
+    const legacyV2 = {
+      schemaVersion: 2,
+      unlockedScenarioIds: ['skirmish', 'islands', 'canyon', 'siege', 'river', 'tundra'],
+      bestGrades: { skirmish: 'S', islands: 'A', canyon: 'B', siege: 'A', river: 'C' },
+      updatedAt: NOW,
+    };
+    expect(parseCampaignProgress(JSON.stringify(legacyV2))).toEqual({ ok: true, value: {
+      ...legacyV2,
+      schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    } });
   });
 
   it('rejects malformed, unsupported, non-contiguous, reordered, and inconsistent progress', () => {
