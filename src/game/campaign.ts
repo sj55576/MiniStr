@@ -2,7 +2,7 @@ import { scenarioById } from './maps';
 import { isGameState, type StorageLike } from './session';
 import type { GameResult, GameState, PlayerId } from './types';
 
-export const CAMPAIGN_SCHEMA_VERSION = 2 as const;
+export const CAMPAIGN_SCHEMA_VERSION = 3 as const;
 export const CAMPAIGN_STORAGE_KEY = 'ministr.campaign.progress';
 export const MAX_CAMPAIGN_BYTES = 64_000;
 export type CampaignGrade = 'S' | 'A' | 'B' | 'C';
@@ -15,6 +15,11 @@ export const campaignStages: readonly CampaignStage[] = [
   { scenarioId: 'siege', recommendedTurns: 24 },
   { scenarioId: 'river', recommendedTurns: 22 },
   { scenarioId: 'tundra', recommendedTurns: 18 },
+  // Append new stages so every v2 unlocked-prefix and grade remains valid.
+  // Landing follows the existing river operation, where players first learn ports.
+  { scenarioId: 'outpost', recommendedTurns: 14 },
+  { scenarioId: 'landing', recommendedTurns: 18 },
+  { scenarioId: 'industrial', recommendedTurns: 24 },
 ];
 
 export interface CampaignProgress {
@@ -25,12 +30,18 @@ export interface CampaignProgress {
 }
 
 function migrateCampaignV1ToV2(value: Record<string, unknown>): Record<string, unknown> {
+  return { ...structuredClone(value), schemaVersion: 2 };
+}
+
+function migrateCampaignV2ToV3(value: Record<string, unknown>): Record<string, unknown> {
+  // The three added stages are appended, so a v2 prefix remains a valid v3 prefix.
   return { ...structuredClone(value), schemaVersion: CAMPAIGN_SCHEMA_VERSION };
 }
 
 function migrateCampaign(value: Record<string, unknown>): Record<string, unknown> | undefined {
   if (value.schemaVersion === CAMPAIGN_SCHEMA_VERSION) return value;
-  if (value.schemaVersion === 1) return migrateCampaignV1ToV2(value);
+  if (value.schemaVersion === 1) return migrateCampaignV2ToV3(migrateCampaignV1ToV2(value));
+  if (value.schemaVersion === 2) return migrateCampaignV2ToV3(value);
   return undefined;
 }
 export interface CampaignGradeResult {
