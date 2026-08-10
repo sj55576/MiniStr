@@ -20,6 +20,8 @@ export const campaignStages: readonly CampaignStage[] = [
   { scenarioId: 'outpost', recommendedTurns: 14 },
   { scenarioId: 'landing', recommendedTurns: 18 },
   { scenarioId: 'industrial', recommendedTurns: 24 },
+  // Appending preserves valid v3 saves from the original nine-stage campaign.
+  { scenarioId: 'marsh', recommendedTurns: 20 },
 ];
 
 export interface CampaignProgress {

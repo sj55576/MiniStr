@@ -235,6 +235,11 @@ const rawBuiltInScenarioData = [
     board: { width: 8, height: 6, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [0, 2, 'city', 'red'], [0, 3, 'airport', 'red'], [7, 5, 'capital', 'blue'], [6, 5, 'factory', 'blue'], [7, 3, 'city', 'blue'], [7, 2, 'airport', 'blue'], [3, 2, 'factory'], [4, 3, 'factory'], [3, 4, 'city'], [4, 1, 'city'], [2, 3, 'forest'], [5, 2, 'forest'], [2, 1, 'mountain'], [5, 4, 'mountain'], [3, 0, 'road'], [4, 5, 'road']] },
     initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 1 }, { kind: 'tank', owner: 'red', x: 1, y: 1 }, { kind: 'recon', owner: 'red', x: 2, y: 0 }, { kind: 'infantry', owner: 'blue', x: 7, y: 4 }, { kind: 'tank', owner: 'blue', x: 6, y: 4 }, { kind: 'recon', owner: 'blue', x: 5, y: 5 }],
   },
+  {
+    id: 'marsh', name: '湿地の突破', theme: 'temperate', startingGold: 7000, briefing: '沼地で装甲部隊の進軍が鈍る。装甲兵員輸送車で歩兵を前へ送り、中央の工場地帯を確保せよ。', victoryConditions: standardVictory, defeatConditions: standardVictory,
+    board: { width: 10, height: 8, cells: [[0, 0, 'capital', 'red'], [1, 0, 'factory', 'red'], [3, 0, 'airport', 'red'], [0, 2, 'city', 'red'], [9, 7, 'capital', 'blue'], [8, 7, 'factory', 'blue'], [6, 7, 'airport', 'blue'], [9, 5, 'city', 'blue'], [4, 1, 'factory'], [5, 6, 'factory'], [4, 6, 'city'], [5, 1, 'city'], [3, 2, 'swamp'], [4, 2, 'swamp'], [2, 3, 'swamp'], [3, 3, 'swamp'], [4, 3, 'swamp'], [5, 4, 'swamp'], [6, 4, 'swamp'], [7, 4, 'swamp'], [6, 5, 'swamp'], [5, 5, 'swamp'], [4, 4, 'road'], [5, 3, 'road'], [2, 4, 'forest'], [7, 3, 'forest'], [1, 3, 'mountain'], [8, 4, 'mountain']] },
+    initialUnits: [{ kind: 'infantry', owner: 'red', x: 0, y: 1 }, { kind: 'apc', owner: 'red', x: 1, y: 1 }, { kind: 'tank', owner: 'red', x: 2, y: 1 }, { kind: 'artillery', owner: 'red', x: 1, y: 2 }, { kind: 'infantry', owner: 'blue', x: 9, y: 6 }, { kind: 'apc', owner: 'blue', x: 8, y: 6 }, { kind: 'tank', owner: 'blue', x: 7, y: 6 }, { kind: 'artillery', owner: 'blue', x: 8, y: 5 }],
+  },
 ] satisfies readonly ScenarioData[];
 
 /** Built-in airports are explicit map data so facilities remain balanced and reviewable. */

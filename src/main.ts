@@ -1,5 +1,5 @@
 import './style.css';
-import { isMergeableUnit } from './game';
+import { isEmbarkableUnit, isMergeableUnit, transportCapacity } from './game';
 import { allProducibleUnitKinds, applyEditorTool, applyGameCommand, AUTO_SAVE_KEY, availableScenarios, campaignStages, countProductionFacilities, createCampaignProgress, createReplay, createScenarioEditor, createScenarioInitialState, damageRange, deleteSaves, describeVictoryCondition, enemyThreatPreview, exportScenarioEditorJson, forecastCombat, getConditionProgress, gradeCampaignBattle, hasSavedGame, hasStoredSaveData, idleProductionFacilities, importScenarioEditorJson, isCampaignScenarioUnlocked, isDeployedUnit, isPropertyTerrainKind, loadCampaignProgress, loadCustomScenarios, loadGame, MANUAL_SAVE_KEY, maps, MAX_REPLAY_BYTES, parseReplay, productionKindsForRule, productionRules, reachablePositionsForPlayer, recordCampaignVictory, saveCampaignProgress, saveCustomScenario, saveGame, scenarioById, scenarioLoadError, serializeReplay, summarizeReplay, terrainKinds, validateEditorScenario, type CampaignGradeResult, type DeployedUnit, type GameCommand, type GameState, type PlayerId, type Position, type ProductionRule, type ReplayFile, type ScenarioEditorState, type TerrainKind, type UnitKind, type VictoryCondition, unitStats, visibleEnemies, visibleEnemyThreats, visiblePositions } from './game';
 import { chooseCpuAction, type CpuDifficulty } from './ai';
 import { nextBoardPosition } from './ui/boardNavigation';
@@ -391,7 +391,7 @@ function render(): void {
     const capturePoints = isProperty ? terrain.capturePoints : undefined;
     const facilityDetail = terrain.kind === 'port' ? '、補給・艦艇を生産可能' : terrain.kind === 'airport' ? '、補給・航空ユニットを生産可能' : terrain.kind === 'factory' ? '、補給・地上ユニット生産拠点' : '';
     const propertyLabel = isProperty ? `${terrainName}${propertyOwner ? `（${propertyOwner === 'red' ? '自軍' : '敵軍'}）` : '（中立）'}${capturePoints !== undefined ? `、占領値 ${capturePoints}` : ''}${facilityDetail}` : terrainName;
-    const cargo = unit?.kind === 'landingShip' ? renderedGame.units.find(candidate => candidate.embarkedIn === unit.id) : undefined;
+    const cargo = unit && transportCapacity(unit.kind) > 0 ? renderedGame.units.find(candidate => candidate.embarkedIn === unit.id) : undefined;
     // Fuel data stays private: only warn about the player's own units, never
     // expose an enemy's exact reserve through a visible tile.
     const fuelTurns = unit && isDeployedUnit(unit) && unit.owner === 'red' ? fuelTurnsRemaining(unit) : undefined;
@@ -462,13 +462,13 @@ function render(): void {
   const selectedUnitActions = captureAction || waitAction || mergeAction
     ? `<section class="unit-action-cluster" aria-label="選択中ユニットの操作">${captureAction}${waitAction}${mergeAction}</section>`
     : '';
-  const embarkTargets = selectedUnit?.owner === renderedGame.activePlayer && selectedUnit.kind === 'infantry' && isDeployedUnit(selectedUnit) && !selectedUnit.hasActed
-    ? renderedGame.units.filter((unit) => isDeployedUnit(unit) && unit.kind === 'landingShip' && unit.owner === selectedUnit.owner
+  const embarkTargets = selectedUnit?.owner === renderedGame.activePlayer && isDeployedUnit(selectedUnit) && isEmbarkableUnit(selectedUnit.kind) && !selectedUnit.hasActed
+    ? renderedGame.units.filter((unit) => isDeployedUnit(unit) && transportCapacity(unit.kind) > 0 && unit.owner === selectedUnit.owner
       && !unit.hasMoved && !unit.hasActed && adjacent(selectedUnit.position, unit.position)
       && !renderedGame.units.some(candidate => candidate.embarkedIn === unit.id))
     : [];
-  const cargo = selectedUnit?.kind === 'landingShip' ? renderedGame.units.find(unit => unit.embarkedIn === selectedUnit.id) : undefined;
-  const landingTargets = selectedUnit?.owner === renderedGame.activePlayer && selectedUnit.kind === 'landingShip' && isDeployedUnit(selectedUnit)
+  const cargo = selectedUnit && isDeployedUnit(selectedUnit) && transportCapacity(selectedUnit.kind) > 0 ? renderedGame.units.find(unit => unit.embarkedIn === selectedUnit.id) : undefined;
+  const landingTargets = selectedUnit?.owner === renderedGame.activePlayer && isDeployedUnit(selectedUnit) && transportCapacity(selectedUnit.kind) > 0
     && !selectedUnit.hasMoved && !selectedUnit.hasActed && cargo
     ? [{ x: selectedUnit.position.x + 1, y: selectedUnit.position.y }, { x: selectedUnit.position.x - 1, y: selectedUnit.position.y }, { x: selectedUnit.position.x, y: selectedUnit.position.y + 1 }, { x: selectedUnit.position.x, y: selectedUnit.position.y - 1 }]
       .filter(position => {
@@ -477,7 +477,7 @@ function render(): void {
       })
     : [];
   const transportAction = !replayMode && (embarkTargets.length || cargo)
-    ? `<section class="transport-card"><p class="card-kicker">LANDING OPERATION</p><strong>${cargo ? `${unitNames[cargo.kind]}を搭載中` : '輸送艦への乗船'}</strong><span>${cargo ? '隣接する陸地を選んで上陸させます。' : '隣接する空の輸送艦を選んで乗船させます。'}</span>${embarkTargets.map(unit => `<button class="transport-action embark" data-transport-id="${unit.id}">${unitNames[unit.kind]}に乗船</button>`).join('')}${landingTargets.map(position => `<button class="transport-action disembark" data-x="${position.x}" data-y="${position.y}">(${position.x + 1}, ${position.y + 1}) に上陸</button>`).join('')}${cargo && landingTargets.length === 0 ? '<em class="transport-note">上陸できる隣接陸地がありません。</em>' : ''}</section>`
+    ? `<section class="transport-card"><p class="card-kicker">TRANSPORT OPERATION</p><strong>${cargo ? `${unitNames[cargo.kind]}を搭載中` : '輸送部隊への搭載'}</strong><span>${cargo ? '隣接する空の陸地を選んで降車させます。' : '隣接する空の輸送部隊を選んで搭載します。'}</span>${embarkTargets.map(unit => `<button class="transport-action embark" data-transport-id="${unit.id}">${unitNames[unit.kind]}に搭載</button>`).join('')}${landingTargets.map(position => `<button class="transport-action disembark" data-x="${position.x}" data-y="${position.y}">(${position.x + 1}, ${position.y + 1}) に降車</button>`).join('')}${cargo && landingTargets.length === 0 ? '<em class="transport-note">降車できる隣接陸地がありません。</em>' : ''}</section>`
     : '';
   const indirectFireBlocked = !replayMode && selectedUnit?.owner === renderedGame.activePlayer
     && unitStats[selectedUnit.kind].indirect && selectedUnit.hasMoved && !selectedUnit.hasActed;
@@ -774,13 +774,13 @@ function render(): void {
     })));
     app.querySelectorAll<HTMLButtonElement>('.embark').forEach(button => button.addEventListener('click', guardNormal(() => {
       if (selected && dispatch({ type: 'embark', unitId: selected, transportId: button.dataset.transportId! }, true)) {
-        message = '歩兵が輸送艦に乗船しました。次のターンから航行できます。'; selected = undefined;
+        message = 'ユニットを輸送部隊に搭載しました。輸送部隊は次のターンから移動できます。'; selected = undefined;
       }
       render();
     })));
     app.querySelectorAll<HTMLButtonElement>('.disembark').forEach(button => button.addEventListener('click', guardNormal(() => {
       if (selected && dispatch({ type: 'disembark', transportId: selected, destination: { x: Number(button.dataset.x), y: Number(button.dataset.y) } }, true)) {
-        message = '歩兵を上陸させました。'; selected = undefined;
+        message = '搭載ユニットを降車させました。'; selected = undefined;
       }
       render();
     })));

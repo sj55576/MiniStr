@@ -56,6 +56,11 @@ export const unitDefinitions = {
     stats: { cost: 8000, movement: 3, attack: 65, defense: 25, capturePower: 0, range: [1, 2], fuel: 60, fuelPerTurn: 0, ammo: 6, vision: 3, indirect: false },
     effectiveness: { soft: 0.45, armor: 0.4, air: 1.8, sea: 0.3 },
   },
+  apc: {
+    category: 'armor', movementProfile: 'vehicle', productionTerrain: 'factory', transportCapacity: 1,
+    stats: { cost: 5000, movement: 6, attack: 25, defense: 30, capturePower: 0, range: [1, 1], fuel: 70, fuelPerTurn: 0, ammo: 6, vision: 3, indirect: false },
+    effectiveness: { soft: 0.55, armor: 0.3, air: 0.25, sea: 0.2 },
+  },
   fighter: {
     category: 'air', movementProfile: 'air', productionTerrain: 'airport', mergeable: true,
     stats: { cost: 20000, movement: 8, attack: 85, defense: 15, capturePower: 0, range: [1, 1], fuel: 60, fuelPerTurn: 5, ammo: 6, vision: 5, indirect: false },

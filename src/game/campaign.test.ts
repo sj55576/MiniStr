@@ -111,6 +111,18 @@ describe('campaign progression', () => {
     expect(advanced.ok && advanced.value.unlockedScenarioIds).toEqual(['skirmish', 'islands', 'canyon', 'siege', 'river']);
   });
 
+  it('extends completed nine-stage v3 progress without a migration', () => {
+    const progress: CampaignProgress = {
+      schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+      unlockedScenarioIds: campaignStages.slice(0, 9).map(stage => stage.scenarioId),
+      bestGrades: Object.fromEntries(campaignStages.slice(0, 8).map(stage => [stage.scenarioId, 'A'])),
+      updatedAt: NOW,
+    };
+    expect(isCampaignProgress(progress)).toBe(true);
+    const advanced = recordCampaignVictory(progress, 'industrial', 'A', NOW);
+    expect(advanced.ok && advanced.value.unlockedScenarioIds.at(-1)).toBe('marsh');
+  });
+
   it('rejects completion of locked, unknown, and invalid-grade scenarios without mutation', () => {
     const progress = createCampaignProgress(NOW);
     const before = structuredClone(progress);

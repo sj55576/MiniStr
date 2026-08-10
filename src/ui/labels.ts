@@ -5,18 +5,18 @@ import type { PlayerId, TerrainKind, UnitKind } from '../game';
  * live here so a label is written once and every surface agrees on it.
  */
 export const terrainNames: Record<TerrainKind, string> = {
-  plain: '平原', forest: '森林', mountain: '山岳', road: '道路', sea: '海',
+  plain: '平原', forest: '森林', mountain: '山岳', road: '道路', swamp: '沼地', sea: '海',
   city: '都市', factory: '工場', airport: '空港', port: '港湾', capital: '司令部',
 };
 
 export const unitNames: Record<UnitKind, string> = {
   infantry: '歩兵', tank: '戦車', artillery: '砲兵', fighter: '戦闘機', bomber: '爆撃機',
-  destroyer: '駆逐艦', landingShip: '輸送艦', recon: '偵察車', rocket: '自走砲', antiAir: '対空車両',
+  destroyer: '駆逐艦', landingShip: '輸送艦', recon: '偵察車', rocket: '自走砲', antiAir: '対空車両', apc: '装甲兵員輸送車',
 };
 
 export const unitTokens: Record<UnitKind, string> = {
   infantry: '歩', tank: '戦', artillery: '砲', fighter: '空', bomber: '爆',
-  destroyer: '艦', landingShip: '輸', recon: '偵', rocket: '自', antiAir: '防',
+  destroyer: '艦', landingShip: '輸', recon: '偵', rocket: '自', antiAir: '防', apc: '装',
 };
 
 /** Relative side label: the viewer's own force versus the opposing force. */
