@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "check:links": "bash scripts/check-private-links.sh",
     "lint": "eslint .",
-    "format:check": "prettier --check \"src/ui/{strings,saveSlots,saveSlots.test,presentationEffects.test}.ts\" \"src/ai/cpuSimulation.test.ts\" \"tests/**/*.ts\" \"*.{mjs,ts,json}\" \".github/workflows/*.yml\"",
+    "format:check": "prettier --check \"src/ui/{strings,saveSlots,saveSlots.test,presentationEffects.test,overlays,overlays.test}.ts\" \"src/ai/cpuSimulation.test.ts\" \"tests/**/*.ts\" \"*.{mjs,ts,json}\" \".github/workflows/*.yml\"",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test"
   },
