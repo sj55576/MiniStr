@@ -14,6 +14,7 @@ const airportPositions: Record<string, Record<PlayerId, { x: number; y: number }
   industrial: { red: { x: 3, y: 0 }, blue: { x: 10, y: 9 } },
   tundra: { red: { x: 2, y: 1 }, blue: { x: 9, y: 1 } },
   outpost: { red: { x: 0, y: 3 }, blue: { x: 7, y: 2 } },
+  marsh: { red: { x: 3, y: 0 }, blue: { x: 6, y: 7 } },
 };
 
 const swapOwner = (owner: PlayerId | undefined): PlayerId | undefined =>
@@ -44,7 +45,7 @@ describe('issues #85, #87, and #90 built-in map invariants', () => {
   });
 
   it('keeps the documented symmetric maps rotationally symmetric', () => {
-    const symmetricIds = ['skirmish', 'islands', 'landing', 'river', 'industrial', 'outpost'];
+    const symmetricIds = ['skirmish', 'islands', 'landing', 'river', 'industrial', 'outpost', 'marsh'];
     for (const scenario of maps.filter(candidate => symmetricIds.includes(candidate.id))) {
       for (let y = 0; y < scenario.board.height; y += 1) for (let x = 0; x < scenario.board.width; x += 1) {
         const mirrorX = scenario.board.width - 1 - x;
@@ -79,4 +80,3 @@ describe('issues #85, #87, and #90 built-in map invariants', () => {
     expect(blueOpening.players.red.gold).toBe(blueOpening.players.blue.gold);
   });
 });
-

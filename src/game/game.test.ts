@@ -54,6 +54,9 @@ describe('Phase 2 game rules', () => {
   it('defines terrain movement and defense effects', () => {
     expect(terrainRules.forest.movement.tank).toBe(2);
     expect(terrainRules.mountain.movement.tank).toBe(Infinity);
+    expect(terrainRules.swamp.movement.infantry).toBe(1);
+    expect(terrainRules.swamp.movement.tank).toBe(3);
+    expect(terrainRules.swamp.defense).toBe(1);
     expect(terrainRules.city.defense).toBeGreaterThan(terrainRules.plain.defense);
   });
 
@@ -539,7 +542,7 @@ describe('Phase 6.2 landing ships and embarked infantry', () => {
   it('rejects non-adjacent boarding and landing onto sea', () => {
     const distant = transportState();
     distant.units[1] = { ...distant.units[1]!, position: { x: 2, y: 0 } };
-    expect(embarkUnit(distant, 'infantry', 'ship')).toEqual({ ok: false, error: 'Infantry must embark from an adjacent coast' });
+    expect(embarkUnit(distant, 'infantry', 'ship')).toEqual({ ok: false, error: 'Unit must embark from an adjacent traversable tile' });
 
     const cargoAtSea = transportState();
     cargoAtSea.units[0] = { ...cargoAtSea.units[0]!, position: undefined, embarkedIn: 'ship' };
@@ -562,6 +565,46 @@ describe('Phase 6.2 landing ships and embarked infantry', () => {
     expect(produceUnit(port, { x: 0, y: 0 }, 'landingShip').ok).toBe(true);
     const factory = stateWith(createGameState(createBoard(1, 1, { kind: 'factory', owner: 'red' })), { players: { red: { gold: 10_000, income: 0 }, blue: { gold: 0, income: 0 } } });
     expect(produceUnit(factory, { x: 0, y: 0 }, 'landingShip')).toEqual({ ok: false, error: 'An owned compatible production facility is required' });
+  });
+
+  it('uses the same transport commands for an APC on land', () => {
+    const state = createGameState(createBoard(3, 1));
+    state.units = [
+      { id: 'infantry', kind: 'infantry', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'apc', kind: 'apc', owner: 'red', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    const boarded = embarkUnit(state, 'infantry', 'apc');
+    expect(boarded.ok && boarded.value.units.find(unit => unit.id === 'infantry')).toMatchObject({ embarkedIn: 'apc', position: undefined });
+    if (!boarded.ok) return;
+
+    const readyToMove = endTurn(endTurn(boarded.value));
+    const moved = moveUnit(readyToMove, 'apc', { x: 2, y: 0 });
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) return;
+
+    const readyToDeploy = endTurn(endTurn(moved.value));
+    expect(disembarkUnit(readyToDeploy, 'apc', { x: 1, y: 0 })).toMatchObject({ ok: true, value: expect.objectContaining({
+      units: expect.arrayContaining([expect.objectContaining({ id: 'infantry', position: { x: 1, y: 0 } })]),
+    }) });
+  });
+
+  it('produces APCs only at factories', () => {
+    const factory = stateWith(createGameState(createBoard(1, 1, { kind: 'factory', owner: 'red' })), { players: { red: { gold: 10_000, income: 0 }, blue: { gold: 0, income: 0 } } });
+    expect(produceUnit(factory, { x: 0, y: 0 }, 'apc').ok).toBe(true);
+    const port = stateWith(createGameState(createBoard(1, 1, { kind: 'port', owner: 'red' })), { players: { red: { gold: 10_000, income: 0 }, blue: { gold: 0, income: 0 } } });
+    expect(produceUnit(port, { x: 0, y: 0 }, 'apc')).toEqual({ ok: false, error: 'An owned compatible production facility is required' });
+  });
+
+  it('keeps APC combat intentionally weaker against armor than infantry', () => {
+    const state = createGameState(createBoard(2, 2));
+    state.units = [
+      { id: 'apc', kind: 'apc', owner: 'red', position: { x: 0, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'infantry', kind: 'infantry', owner: 'blue', position: { x: 1, y: 0 }, hp: 100, hasMoved: false, hasActed: false },
+      { id: 'tank', kind: 'tank', owner: 'blue', position: { x: 0, y: 1 }, hp: 100, hasMoved: false, hasActed: false },
+    ];
+    const againstInfantry = forecastCombat(state, state.units[0]!, state.units[1]!);
+    const againstTank = forecastCombat(state, state.units[0]!, state.units[2]!);
+    expect(againstInfantry.ok && againstTank.ok && againstInfantry.value.damageToDefender).toBeGreaterThan(againstTank.ok ? againstTank.value.damageToDefender : Infinity);
   });
 });
 

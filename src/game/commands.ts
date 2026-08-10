@@ -306,7 +306,7 @@ function canDeployEmbarkableUnit(state: GameState, destination: Position, kind: 
   return !!terrain && terrain.kind !== 'sea' && Number.isFinite(movementCost(state.board, destination, kind));
 }
 
-/** Boards an adjacent allied transport. Both units are spent to prevent a same-turn sea crossing. */
+/** Boards an adjacent allied transport. Both units are spent to prevent a same-turn crossing. */
 export function embarkUnit(state: GameState, unitId: string, transportId: string): GameResult {
   if (state.winner) return fail('Game has finished');
   const unit = state.units.find(candidate => candidate.id === unitId);
@@ -316,14 +316,14 @@ export function embarkUnit(state: GameState, unitId: string, transportId: string
   if (!isEmbarkableUnit(unit.kind)) return fail('This unit cannot embark');
   if (transportCapacity(transport.kind) === 0) return fail('A transport unit is required');
   if (unit.hasActed || transport.hasMoved || transport.hasActed) return fail('Unit or transport has already acted');
-  if (!canDeployEmbarkableUnit(state, unit.position, unit.kind) || !adjacent(unit.position, transport.position)) return fail('Infantry must embark from an adjacent coast');
+  if (!canDeployEmbarkableUnit(state, unit.position, unit.kind) || !adjacent(unit.position, transport.position)) return fail('Unit must embark from an adjacent traversable tile');
   if (state.units.filter(candidate => candidate.embarkedIn === transport.id).length >= transportCapacity(transport.kind)) return fail('Transport is already at capacity');
   return succeed({ ...state, units: state.units.map(candidate => candidate.id === unit.id
     ? { ...candidate, position: undefined, embarkedIn: transport.id, hasMoved: true, hasActed: true }
     : candidate.id === transport.id ? { ...candidate, hasMoved: true, hasActed: true } : candidate) });
 }
 
-/** Lands carried cargo onto an adjacent, vacant land tile. */
+/** Deploys carried cargo onto an adjacent, vacant land tile. */
 export function disembarkUnit(state: GameState, transportId: string, destination: Position): GameResult {
   if (state.winner) return fail('Game has finished');
   const transport = state.units.find(candidate => candidate.id === transportId);

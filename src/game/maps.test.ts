@@ -23,8 +23,8 @@ describe('expanded map roster', () => {
     expect(createScenarioInitialState(catalog.scenarios[0]!).units).toHaveLength(2);
   });
 
-  it('offers nine distinct scenarios with map-owned starting forces', () => {
-    expect(maps.map(map => map.id)).toEqual(['skirmish', 'islands', 'landing', 'canyon', 'siege', 'river', 'industrial', 'tundra', 'outpost']);
+  it('offers ten distinct scenarios with map-owned starting forces', () => {
+    expect(maps.map(map => map.id)).toEqual(['skirmish', 'islands', 'landing', 'canyon', 'siege', 'river', 'industrial', 'tundra', 'outpost', 'marsh']);
     for (const map of maps) {
       expect(map.initialUnits.some(unit => unit.owner === 'red')).toBe(true);
       expect(map.initialUnits.some(unit => unit.owner === 'blue')).toBe(true);
@@ -81,6 +81,12 @@ describe('expanded map roster', () => {
     expect(unitStats.rocket).toMatchObject({ range: [3, 5], attack: 90 });
     expect(maps.some(map => map.initialUnits.some(unit => unit.kind === 'recon'))).toBe(true);
     expect(maps.some(map => map.initialUnits.some(unit => unit.kind === 'rocket'))).toBe(true);
+  });
+
+  it('adds a swamp-focused map with APCs for both armies', () => {
+    const marsh = maps.find(map => map.id === 'marsh')!;
+    expect(marsh.board.terrain.flat().some(tile => tile.kind === 'swamp')).toBe(true);
+    expect(marsh.initialUnits.filter(unit => unit.kind === 'apc').map(unit => unit.owner).sort()).toEqual(['blue', 'red']);
   });
 
   it('persists custom scenarios, restores them into the selectable catalog, and creates canonical initial state', () => {

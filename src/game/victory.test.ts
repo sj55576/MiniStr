@@ -22,7 +22,7 @@ const dedicatedObjectiveIds = new Set(['landing', 'industrial', 'tundra']);
 describe('data-driven victory conditions', () => {
   it('keeps the standard-objective maps mirrored while allowing dedicated scenarios', () => {
     const standardMaps = maps.filter(map => !dedicatedObjectiveIds.has(map.id));
-    expect(standardMaps.map(map => map.id)).toEqual(['skirmish', 'islands', 'canyon', 'siege', 'river', 'outpost']);
+    expect(standardMaps.map(map => map.id)).toEqual(['skirmish', 'islands', 'canyon', 'siege', 'river', 'outpost', 'marsh']);
     for (const map of standardMaps) {
       expect(map.briefing.length).toBeGreaterThan(0);
       expect(map.victoryConditions).toEqual([{ type: 'eliminate' }, { type: 'captureCapital' }]);
