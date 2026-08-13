@@ -2,7 +2,7 @@
 
 ブラウザで遊べるターン制戦略ゲームです。Issue #1 の仕様案をもとに **Phase 1–6** を実装しています。
 
-🎮 **[GitHub Pages でプレイする](https://sj55576.github.io/MiniStr/)** | 📚 [実装仕様](#実装仕様) | 🏗️ [実装ガイド](docs/implementation-guide.md) | 🛠️ [セットアップ](#セットアップ)
+🎮 **[GitHub Pages でプレイする](https://kumakumapon.github.io/MiniStr/)** | 📚 [実装仕様](#実装仕様) | 🏗️ [実装ガイド](docs/implementation-guide.md) | 🛠️ [セットアップ](#セットアップ)
 
 ## 概要
 
@@ -222,7 +222,7 @@ src/
 
 ```bash
 # リポジトリをクローン
-git clone https://github.com/sj55576/MiniStr.git
+git clone https://github.com/kumakumapon/MiniStr.git
 cd MiniStr
 
 # 依存関係をインストール
@@ -268,7 +268,7 @@ npm run check:links
 
 現時点で継続対応としている項目です。判断の経緯は [公開前最終確認](docs/release-readiness.md) に記録しています。
 
-- セーブは旧来の手動／オートセーブとの互換を保ちながら、名前付きスロットを最大12件管理できます。localStorage 全体の使用量表示は実装済みです。一方で、画面統合を担う `main.ts` の分割と、多言語対応は継続課題です（[#53](https://github.com/sj55576/MiniStr/issues/53)）。
+- セーブは旧来の手動／オートセーブとの互換を保ちながら、名前付きスロットを最大12件管理できます。localStorage 全体の使用量表示は実装済みです。一方で、画面統合を担う `main.ts` の分割と、多言語対応は継続課題です（[#53](https://github.com/kumakumapon/MiniStr/issues/53)）。
 
 ## 貢献
 
